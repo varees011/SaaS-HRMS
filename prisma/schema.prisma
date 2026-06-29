@@ -1,0 +1,609 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+enum UserStatus {
+  INVITED
+  ACTIVE
+  LOCKED
+  DISABLED
+}
+
+enum MembershipStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+enum RoleType {
+  PLATFORM
+  TENANT
+  ORGANIZATION
+  MANAGER
+  SELF
+}
+
+enum AssignmentScope {
+  PLATFORM
+  TENANT
+  ORGANIZATION
+  TEAM
+  SELF
+}
+
+enum PermissionSensitivity {
+  STANDARD
+  SENSITIVE
+  RESTRICTED
+}
+
+enum SessionRevocationReason {
+  LOGOUT
+  USER_REQUEST
+  PASSWORD_CHANGED
+  ADMIN_ACTION
+  REFRESH_TOKEN_REUSE
+  EXPIRED
+}
+
+enum HrmsRecordType {
+  EMPLOYEE_DOCUMENT
+  ATTENDANCE
+  LEAVE_REQUEST
+  PAYROLL_RECORD
+  PAYROLL_RUN
+  RECRUITMENT_JOB
+  CANDIDATE
+  INTERVIEW
+  OFFER
+  TEAM_GOAL
+  PERFORMANCE_REVIEW
+  WORKFLOW_TASK
+  REPORT_EXPORT
+  TRAINING
+}
+
+enum HrmsRecordStatus {
+  DRAFT
+  ACTIVE
+  PENDING
+  APPROVED
+  REJECTED
+  COMPLETED
+  CANCELLED
+  ARCHIVED
+}
+
+enum ReviewCycleStatus {
+  DRAFT
+  ACTIVE
+  CLOSED
+  ARCHIVED
+}
+
+enum PerformanceReviewStatus {
+  DRAFT
+  SELF_ASSESSMENT_SUBMITTED
+  MANAGER_REVIEWED
+  APPROVED
+  REJECTED
+}
+
+model Tenant {
+  id              String       @id @default(uuid()) @db.Uuid
+  code            String       @db.Citext
+  name            String       @db.VarChar(200)
+  status          TenantStatus @default(ACTIVE)
+  defaultTimezone String       @default("UTC") @map("default_timezone") @db.VarChar(64)
+  defaultLocale   String       @default("en") @map("default_locale") @db.VarChar(16)
+  settings        Json         @default("{}")
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt       DateTime?    @map("deleted_at") @db.Timestamptz(6)
+  rowVersion      BigInt       @default(1) @map("row_version")
+
+  memberships         TenantMembership[]
+  roles               Role[]
+  roleAssignments     RoleAssignment[]
+  organizations       Organization[]
+  sessions            AuthSession[]
+  passwordResetTokens PasswordResetToken[]
+  auditEvents         AuditEvent[]
+  hrmsRecords         HrmsRecord[]
+  reviewCycles        PerformanceReviewCycle[]
+  performanceGoals    PerformanceGoal[]
+  performanceReviews  PerformanceReview[]
+  performanceEvidence PerformanceEvidence[]
+
+  @@unique([code])
+  @@index([status, deletedAt])
+  @@map("tenants")
+}
+
+model User {
+  id                 String     @id @default(uuid()) @db.Uuid
+  email              String     @unique @db.Citext
+  username           String?    @unique @db.Citext
+  passwordHash       String?    @map("password_hash")
+  firstName          String     @map("first_name") @db.VarChar(100)
+  lastName           String     @map("last_name") @db.VarChar(100)
+  status             UserStatus @default(INVITED)
+  emailVerifiedAt    DateTime?  @map("email_verified_at") @db.Timestamptz(6)
+  lastLoginAt        DateTime?  @map("last_login_at") @db.Timestamptz(6)
+  failedLoginCount   Int        @default(0) @map("failed_login_count")
+  lockedUntil        DateTime?  @map("locked_until") @db.Timestamptz(6)
+  mfaEnabled         Boolean    @default(false) @map("mfa_enabled")
+  mfaSecretEncrypted String?    @map("mfa_secret_encrypted")
+  preferences        Json       @default("{}")
+  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy          String?    @map("created_by") @db.Uuid
+  updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy          String?    @map("updated_by") @db.Uuid
+  deletedAt          DateTime?  @map("deleted_at") @db.Timestamptz(6)
+  deletedBy          String?    @map("deleted_by") @db.Uuid
+  rowVersion         BigInt     @default(1) @map("row_version")
+
+  memberships           TenantMembership[]
+  roleAssignments       RoleAssignment[]      @relation("AssignedUser")
+  assignedRoles         RoleAssignment[]      @relation("RoleAssigner")
+  sessions              AuthSession[]
+  passwordResetTokens   PasswordResetToken[]
+  auditEvents           AuditEvent[]          @relation("AuditActor")
+  effectiveAuditEvents  AuditEvent[]          @relation("AuditEffectiveUser")
+  managedOrganizations  Organization[]        @relation("OrganizationManager")
+  subjectHrmsRecords    HrmsRecord[]          @relation("HrmsRecordSubject")
+  ownedHrmsRecords      HrmsRecord[]          @relation("HrmsRecordOwner")
+  assignedHrmsRecords   HrmsRecord[]          @relation("HrmsRecordAssignee")
+  ownedPerformanceGoals PerformanceGoal[]     @relation("PerformanceGoalOwner")
+  employeeReviews       PerformanceReview[]   @relation("PerformanceReviewEmployee")
+  managerReviews        PerformanceReview[]   @relation("PerformanceReviewManager")
+  uploadedEvidence      PerformanceEvidence[] @relation("PerformanceEvidenceUploader")
+
+  @@index([status, deletedAt])
+  @@index([lastName, firstName])
+  @@map("users")
+}
+
+model TenantMembership {
+  id         String           @id @default(uuid()) @db.Uuid
+  tenantId   String           @map("tenant_id") @db.Uuid
+  userId     String           @map("user_id") @db.Uuid
+  status     MembershipStatus @default(INVITED)
+  joinedAt   DateTime?        @map("joined_at") @db.Timestamptz(6)
+  createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy  String?          @map("created_by") @db.Uuid
+  updatedAt  DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy  String?          @map("updated_by") @db.Uuid
+  deletedAt  DateTime?        @map("deleted_at") @db.Timestamptz(6)
+  deletedBy  String?          @map("deleted_by") @db.Uuid
+  rowVersion BigInt           @default(1) @map("row_version")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@unique([tenantId, userId])
+  @@index([userId, status, deletedAt])
+  @@index([tenantId, status, deletedAt])
+  @@map("tenant_memberships")
+}
+
+model Role {
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String?   @map("tenant_id") @db.Uuid
+  departmentId String?   @map("department_id") @db.Uuid
+  code         String    @db.Citext
+  name         String    @db.VarChar(100)
+  description  String?
+  roleType     RoleType  @map("role_type")
+  isSystemRole Boolean   @default(false) @map("is_system_role")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+  rowVersion   BigInt    @default(1) @map("row_version")
+
+  tenant      Tenant?          @relation(fields: [tenantId], references: [id])
+  department  Organization?    @relation("DepartmentRoles", fields: [tenantId, departmentId], references: [tenantId, id], onDelete: Restrict)
+  permissions RolePermission[]
+  assignments RoleAssignment[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, departmentId, deletedAt])
+  @@index([tenantId, roleType, deletedAt])
+  @@map("roles")
+}
+
+model Permission {
+  id          String                @id @default(uuid()) @db.Uuid
+  code        String                @unique @db.Citext
+  module      String                @db.VarChar(50)
+  resource    String                @db.VarChar(100)
+  action      String                @db.VarChar(50)
+  description String?
+  sensitivity PermissionSensitivity @default(STANDARD)
+  requiresMfa Boolean               @default(false) @map("requires_mfa")
+  createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy   String?               @map("created_by") @db.Uuid
+  updatedAt   DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy   String?               @map("updated_by") @db.Uuid
+  deletedAt   DateTime?             @map("deleted_at") @db.Timestamptz(6)
+  deletedBy   String?               @map("deleted_by") @db.Uuid
+  rowVersion  BigInt                @default(1) @map("row_version")
+
+  roles RolePermission[]
+
+  @@index([module, resource, action])
+  @@index([sensitivity, requiresMfa])
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String    @id @default(uuid()) @db.Uuid
+  roleId       String    @map("role_id") @db.Uuid
+  permissionId String    @map("permission_id") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by") @db.Uuid
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id])
+  permission Permission @relation(fields: [permissionId], references: [id])
+
+  @@unique([roleId, permissionId])
+  @@index([permissionId, deletedAt])
+  @@map("role_permissions")
+}
+
+model RoleAssignment {
+  id                 String          @id @default(uuid()) @db.Uuid
+  userId             String          @map("user_id") @db.Uuid
+  roleId             String          @map("role_id") @db.Uuid
+  tenantId           String?         @map("tenant_id") @db.Uuid
+  organizationId     String?         @map("organization_id") @db.Uuid
+  scopeType          AssignmentScope @map("scope_type")
+  includeDescendants Boolean         @default(false) @map("include_descendants")
+  validFrom          DateTime        @default(now()) @map("valid_from") @db.Timestamptz(6)
+  validUntil         DateTime?       @map("valid_until") @db.Timestamptz(6)
+  assignedBy         String?         @map("assigned_by") @db.Uuid
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  deletedAt          DateTime?       @map("deleted_at") @db.Timestamptz(6)
+  deletedBy          String?         @map("deleted_by") @db.Uuid
+
+  user         User          @relation("AssignedUser", fields: [userId], references: [id])
+  role         Role          @relation(fields: [roleId], references: [id])
+  tenant       Tenant?       @relation(fields: [tenantId], references: [id])
+  organization Organization? @relation(fields: [tenantId, organizationId], references: [tenantId, id])
+  assigner     User?         @relation("RoleAssigner", fields: [assignedBy], references: [id])
+
+  @@index([userId, tenantId, deletedAt])
+  @@index([roleId, tenantId, deletedAt])
+  @@index([tenantId, organizationId, deletedAt])
+  @@index([validUntil])
+  @@map("role_assignments")
+}
+
+model Organization {
+  id                 String    @id @default(uuid()) @db.Uuid
+  tenantId           String    @map("tenant_id") @db.Uuid
+  parentId           String?   @map("parent_id") @db.Uuid
+  managerUserId      String?   @map("manager_user_id") @db.Uuid
+  code               String    @db.Citext
+  name               String    @db.VarChar(200)
+  organizationType   String    @map("organization_type") @db.VarChar(30)
+  legalName          String?   @map("legal_name") @db.VarChar(250)
+  registrationNumber String?   @map("registration_number") @db.VarChar(100)
+  email              String?   @db.Citext
+  phone              String?   @db.VarChar(40)
+  timezone           String    @default("UTC") @db.VarChar(64)
+  countryCode        String?   @map("country_code") @db.Char(2)
+  address            Json      @default("{}")
+  metadata           Json      @default("{}")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy          String?   @map("created_by") @db.Uuid
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy          String?   @map("updated_by") @db.Uuid
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy          String?   @map("deleted_by") @db.Uuid
+  rowVersion         BigInt    @default(1) @map("row_version")
+
+  tenant             Tenant                   @relation(fields: [tenantId], references: [id])
+  parent             Organization?            @relation("OrganizationHierarchy", fields: [tenantId, parentId], references: [tenantId, id])
+  children           Organization[]           @relation("OrganizationHierarchy")
+  manager            User?                    @relation("OrganizationManager", fields: [managerUserId], references: [id])
+  roleAssignments    RoleAssignment[]
+  departmentRoles    Role[]                   @relation("DepartmentRoles")
+  hrmsRecords        HrmsRecord[]
+  reviewCycles       PerformanceReviewCycle[]
+  performanceGoals   PerformanceGoal[]
+  performanceReviews PerformanceReview[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, code])
+  @@index([tenantId, parentId])
+  @@index([tenantId, organizationType])
+  @@index([managerUserId])
+  @@map("organizations")
+}
+
+model HrmsRecord {
+  id               String           @id @default(uuid()) @db.Uuid
+  tenantId         String           @map("tenant_id") @db.Uuid
+  organizationId   String?          @map("organization_id") @db.Uuid
+  subjectUserId    String?          @map("subject_user_id") @db.Uuid
+  ownerUserId      String?          @map("owner_user_id") @db.Uuid
+  assignedToUserId String?          @map("assigned_to_user_id") @db.Uuid
+  type             HrmsRecordType
+  status           HrmsRecordStatus @default(DRAFT)
+  code             String?          @db.Citext
+  title            String           @db.VarChar(200)
+  description      String?
+  startDate        DateTime?        @map("start_date") @db.Timestamptz(6)
+  endDate          DateTime?        @map("end_date") @db.Timestamptz(6)
+  amount           Decimal?         @db.Decimal(14, 2)
+  currency         String?          @db.Char(3)
+  metadata         Json             @default("{}")
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy        String?          @map("created_by") @db.Uuid
+  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy        String?          @map("updated_by") @db.Uuid
+  deletedAt        DateTime?        @map("deleted_at") @db.Timestamptz(6)
+  deletedBy        String?          @map("deleted_by") @db.Uuid
+  rowVersion       BigInt           @default(1) @map("row_version")
+
+  tenant         Tenant        @relation(fields: [tenantId], references: [id])
+  organization   Organization? @relation(fields: [tenantId, organizationId], references: [tenantId, id])
+  subjectUser    User?         @relation("HrmsRecordSubject", fields: [subjectUserId], references: [id])
+  ownerUser      User?         @relation("HrmsRecordOwner", fields: [ownerUserId], references: [id])
+  assignedToUser User?         @relation("HrmsRecordAssignee", fields: [assignedToUserId], references: [id])
+
+  @@unique([tenantId, type, code])
+  @@index([tenantId, type, status, deletedAt])
+  @@index([tenantId, organizationId, type, deletedAt])
+  @@index([tenantId, subjectUserId, type, deletedAt])
+  @@index([tenantId, assignedToUserId, status, deletedAt])
+  @@index([startDate, endDate])
+  @@map("hrms_records")
+}
+
+model PerformanceReviewCycle {
+  id             String            @id @default(uuid()) @db.Uuid
+  tenantId       String            @map("tenant_id") @db.Uuid
+  organizationId String?           @map("organization_id") @db.Uuid
+  name           String            @db.VarChar(200)
+  startDate      DateTime          @map("start_date") @db.Date
+  endDate        DateTime          @map("end_date") @db.Date
+  status         ReviewCycleStatus @default(DRAFT)
+  metadata       Json              @default("{}")
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy      String?           @map("created_by") @db.Uuid
+  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy      String?           @map("updated_by") @db.Uuid
+  deletedAt      DateTime?         @map("deleted_at") @db.Timestamptz(6)
+  deletedBy      String?           @map("deleted_by") @db.Uuid
+  rowVersion     BigInt            @default(1) @map("row_version")
+
+  tenant       Tenant              @relation(fields: [tenantId], references: [id])
+  organization Organization?       @relation(fields: [tenantId, organizationId], references: [tenantId, id])
+  goals        PerformanceGoal[]
+  reviews      PerformanceReview[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, status, deletedAt])
+  @@index([tenantId, organizationId, status])
+  @@map("performance_review_cycles")
+}
+
+model PerformanceGoal {
+  id             String    @id @default(uuid()) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  cycleId        String    @map("cycle_id") @db.Uuid
+  organizationId String?   @map("organization_id") @db.Uuid
+  ownerUserId    String?   @map("owner_user_id") @db.Uuid
+  name           String    @db.VarChar(200)
+  description    String?
+  weightage      Decimal   @db.Decimal(5, 2)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy      String?   @map("created_by") @db.Uuid
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy      String?   @map("updated_by") @db.Uuid
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedBy      String?   @map("deleted_by") @db.Uuid
+  rowVersion     BigInt    @default(1) @map("row_version")
+
+  tenant       Tenant                 @relation(fields: [tenantId], references: [id])
+  cycle        PerformanceReviewCycle @relation(fields: [cycleId], references: [id])
+  organization Organization?          @relation(fields: [tenantId, organizationId], references: [tenantId, id])
+  owner        User?                  @relation("PerformanceGoalOwner", fields: [ownerUserId], references: [id])
+  kras         PerformanceKra[]
+
+  @@unique([tenantId, cycleId, name])
+  @@index([tenantId, cycleId, deletedAt])
+  @@index([tenantId, organizationId, deletedAt])
+  @@map("performance_goals")
+}
+
+model PerformanceKra {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  goalId      String    @map("goal_id") @db.Uuid
+  title       String    @db.VarChar(200)
+  description String?
+  weightage   Decimal   @db.Decimal(5, 2)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  goal PerformanceGoal  @relation(fields: [goalId], references: [id])
+  kpis PerformanceKpi[]
+
+  @@unique([tenantId, goalId, title])
+  @@index([tenantId, goalId, deletedAt])
+  @@map("performance_kras")
+}
+
+model PerformanceKpi {
+  id                    String    @id @default(uuid()) @db.Uuid
+  tenantId              String    @map("tenant_id") @db.Uuid
+  kraId                 String    @map("kra_id") @db.Uuid
+  description           String
+  targetValue           Decimal?  @map("target_value") @db.Decimal(12, 2)
+  actualValue           Decimal?  @map("actual_value") @db.Decimal(12, 2)
+  achievementPercentage Decimal?  @map("achievement_percentage") @db.Decimal(5, 2)
+  score                 Decimal?  @db.Decimal(5, 2)
+  weightage             Decimal   @db.Decimal(5, 2)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt             DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  kra      PerformanceKra        @relation(fields: [kraId], references: [id])
+  evidence PerformanceEvidence[]
+
+  @@index([tenantId, kraId, deletedAt])
+  @@map("performance_kpis")
+}
+
+model PerformanceReview {
+  id               String                  @id @default(uuid()) @db.Uuid
+  tenantId         String                  @map("tenant_id") @db.Uuid
+  cycleId          String                  @map("cycle_id") @db.Uuid
+  employeeUserId   String                  @map("employee_user_id") @db.Uuid
+  managerUserId    String?                 @map("manager_user_id") @db.Uuid
+  organizationId   String?                 @map("organization_id") @db.Uuid
+  selfScore        Decimal?                @map("self_score") @db.Decimal(5, 2)
+  managerScore     Decimal?                @map("manager_score") @db.Decimal(5, 2)
+  finalScore       Decimal?                @map("final_score") @db.Decimal(5, 2)
+  employeeComments String?                 @map("employee_comments")
+  managerComments  String?                 @map("manager_comments")
+  status           PerformanceReviewStatus @default(DRAFT)
+  submittedAt      DateTime?               @map("submitted_at") @db.Timestamptz(6)
+  reviewedAt       DateTime?               @map("reviewed_at") @db.Timestamptz(6)
+  approvedAt       DateTime?               @map("approved_at") @db.Timestamptz(6)
+  createdAt        DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy        String?                 @map("created_by") @db.Uuid
+  updatedAt        DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy        String?                 @map("updated_by") @db.Uuid
+  deletedAt        DateTime?               @map("deleted_at") @db.Timestamptz(6)
+  deletedBy        String?                 @map("deleted_by") @db.Uuid
+  rowVersion       BigInt                  @default(1) @map("row_version")
+
+  tenant       Tenant                 @relation(fields: [tenantId], references: [id])
+  cycle        PerformanceReviewCycle @relation(fields: [cycleId], references: [id])
+  employee     User                   @relation("PerformanceReviewEmployee", fields: [employeeUserId], references: [id])
+  manager      User?                  @relation("PerformanceReviewManager", fields: [managerUserId], references: [id])
+  organization Organization?          @relation(fields: [tenantId, organizationId], references: [tenantId, id])
+  evidence     PerformanceEvidence[]
+
+  @@unique([tenantId, cycleId, employeeUserId])
+  @@index([tenantId, cycleId, status, deletedAt])
+  @@index([tenantId, employeeUserId, deletedAt])
+  @@index([tenantId, managerUserId, status])
+  @@map("performance_reviews")
+}
+
+model PerformanceEvidence {
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  reviewId         String    @map("review_id") @db.Uuid
+  kpiId            String?   @map("kpi_id") @db.Uuid
+  uploadedByUserId String    @map("uploaded_by_user_id") @db.Uuid
+  title            String    @db.VarChar(200)
+  fileName         String    @map("file_name") @db.VarChar(255)
+  fileUrl          String    @map("file_url")
+  mimeType         String?   @map("mime_type") @db.VarChar(100)
+  sizeBytes        BigInt?   @map("size_bytes")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  tenant     Tenant            @relation(fields: [tenantId], references: [id])
+  review     PerformanceReview @relation(fields: [reviewId], references: [id])
+  kpi        PerformanceKpi?   @relation(fields: [kpiId], references: [id])
+  uploadedBy User              @relation("PerformanceEvidenceUploader", fields: [uploadedByUserId], references: [id])
+
+  @@index([tenantId, reviewId, deletedAt])
+  @@index([tenantId, kpiId])
+  @@map("performance_evidence")
+}
+
+model AuthSession {
+  id                    String                   @id @default(uuid()) @db.Uuid
+  tenantId              String?                  @map("tenant_id") @db.Uuid
+  userId                String                   @map("user_id") @db.Uuid
+  refreshTokenHash      String                   @map("refresh_token_hash") @db.Char(64)
+  refreshTokenFamily    String                   @map("refresh_token_family") @db.Uuid
+  userAgent             String?                  @map("user_agent")
+  ipAddress             String?                  @map("ip_address") @db.Inet
+  authenticationMethods String[]                 @default(["pwd"]) @map("authentication_methods")
+  expiresAt             DateTime                 @map("expires_at") @db.Timestamptz(6)
+  lastUsedAt            DateTime                 @default(now()) @map("last_used_at") @db.Timestamptz(6)
+  revokedAt             DateTime?                @map("revoked_at") @db.Timestamptz(6)
+  revocationReason      SessionRevocationReason? @map("revocation_reason")
+  replacedBySessionId   String?                  @map("replaced_by_session_id") @db.Uuid
+  createdAt             DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+  user   User    @relation(fields: [userId], references: [id])
+
+  @@index([userId, tenantId, revokedAt])
+  @@index([refreshTokenHash])
+  @@index([refreshTokenFamily])
+  @@map("auth_sessions")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String?   @map("tenant_id") @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash") @db.Char(64)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+  user   User    @relation(fields: [userId], references: [id])
+
+  @@index([userId, expiresAt])
+  @@map("password_reset_tokens")
+}
+
+model AuditEvent {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String?  @map("tenant_id") @db.Uuid
+  actorUserId     String?  @map("actor_user_id") @db.Uuid
+  effectiveUserId String?  @map("effective_user_id") @db.Uuid
+  action          String   @db.VarChar(100)
+  entityType      String   @map("entity_type") @db.VarChar(100)
+  entityId        String?  @map("entity_id") @db.Uuid
+  requestId       String?  @map("request_id") @db.Uuid
+  correlationId   String?  @map("correlation_id") @db.Uuid
+  ipAddress       String?  @map("ip_address") @db.Inet
+  userAgent       String?  @map("user_agent")
+  result          String   @db.VarChar(20)
+  reason          String?
+  oldValues       Json?    @map("old_values")
+  newValues       Json?    @map("new_values")
+  metadata        Json     @default("{}")
+  occurredAt      DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  tenant        Tenant? @relation(fields: [tenantId], references: [id])
+  actor         User?   @relation("AuditActor", fields: [actorUserId], references: [id])
+  effectiveUser User?   @relation("AuditEffectiveUser", fields: [effectiveUserId], references: [id])
+
+  @@index([tenantId, occurredAt])
+  @@index([actorUserId, occurredAt])
+  @@index([entityType, entityId, occurredAt])
+  @@map("audit_events")
+}

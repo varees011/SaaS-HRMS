@@ -1,0 +1,150 @@
+Build a SaaS HRMS Performance Management module for organization : VentureSoft.AI
+
+Purpose:
+Manage Goals, KRA (Key Result Areas), KPI (Key Performance Indicators), review cycles, manager assessments, employee self-assessments, and performance scoring.
+
+Tech Requirements:
+- Multi-tenant SaaS architecture
+- RBAC: Super Admin, HR Admin, Manager, Employee
+- Responsive web application
+- REST APIs
+- Audit logs
+- Notification system
+- Dashboard analytics
+
+Core Entities:
+
+1. Employee
+- employee_id
+- name
+- email
+- department
+- designation
+- manager_id
+- joining_date
+- status
+
+2. Review Cycle
+- cycle_id
+- name
+- start_date
+- end_date
+- status
+
+3. Goal
+- goal_id
+- goal_name
+- weightage
+- review_cycle_id
+
+4. KRA
+- kra_id
+- goal_id
+- title
+- description
+- weightage
+
+5. KPI
+- kpi_id
+- kra_id
+- description
+- target_value
+- actual_value
+- achievement_percentage
+- score
+- weightage
+
+6. Performance Review
+- review_id
+- employee_id
+- review_cycle_id
+- self_score
+- manager_score
+- final_score
+- comments
+- status
+
+KRA/KPI Structure:
+
+Goal: Operational Excellence
+
+KRA:
+1. Ensure Client Cloud Environment is Stable
+KPI:
+- Less than 5 P1 tickets during review period
+
+KRA:
+2. Increase Efficiency in Responding and Fixing User Problems
+KPI:
+- SLA breach percentage below 5%
+
+KRA:
+3. Governance and Reporting
+KPI:
+- 100% cadence reports submitted on time
+- Attendance in all client monthly meetings
+
+KRA:
+4. Increase Client Satisfaction with Technology Operations
+KPI:
+- Client satisfaction score above 85%
+- Less than 3 operational escalations
+
+Goal: Technical Competencies and Corporate Citizenship
+
+KRA:
+1. Professional Development
+KPI:
+- Complete all mandatory trainings
+- Complete at least one certification
+
+KRA:
+2. Corporate Citizenship
+KPI:
+- Publish minimum one whitepaper or blog
+
+Features:
+
+Employee:
+- View assigned goals
+- Update KPI achievements
+- Submit self-review
+- Upload evidence/documents
+
+Manager:
+- Create and assign goals/KRAs/KPIs
+- Review employee achievements
+- Provide ratings and comments
+- Approve final review
+
+HR Admin:
+- Create review cycles
+- Configure rating scales
+- Define templates
+- Generate reports
+
+Scoring:
+- KPI weighted scoring
+- KRA score = weighted KPI average
+- Goal score = weighted KRA average
+- Final score = weighted Goal average
+
+Reports:
+- Employee scorecard
+- Department performance
+- Goal completion %
+- KPI achievement trend
+- Review cycle summary
+
+Dashboards:
+- Employee dashboard
+- Manager dashboard
+- HR dashboard
+
+Generate:
+- Database schema
+- Backend APIs
+- Frontend screens
+- Validation rules
+- Workflow automation
+- Seed data based on provided KRA/KPI template.

@@ -1,0 +1,49 @@
+{
+  "name": "saas-hrms-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
+    "prisma:seed": "tsx prisma/seed.ts",
+    "seed:super-admin": "tsx prisma/seed.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "frontend:dev": "pnpm --dir frontend dev",
+    "frontend:build": "pnpm --dir frontend build",
+    "frontend:test": "pnpm --dir frontend test"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.10.1",
+    "argon2": "^0.43.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.5.2",
+    "helmet": "^8.1.0",
+    "jose": "^6.0.11",
+    "otplib": "^12.0.1",
+    "pino": "^9.7.0",
+    "pino-http": "^10.4.0",
+    "zod": "^3.25.67"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.9",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.0.3",
+    "prisma": "^6.10.1",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}

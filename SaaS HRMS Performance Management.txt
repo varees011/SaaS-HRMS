@@ -1,0 +1,350 @@
+SaaS HRMS Performance Management Architecture
+
+Phase 1 — System Architecture (First Prompt)
+
+Use GLM 5.2.
+
+Act as a senior SaaS architect.
+
+Design a production-ready multi-tenant HRMS SaaS platform.
+
+Requirements:
+- Multi-tenant
+- RBAC
+- Employee Self Service
+- HR Admin Portal
+- Manager Portal
+- Audit Logs
+- Notifications
+- File Uploads
+- Workflow Engine
+- Dashboard Analytics
+
+Modules:
+- Authentication
+- Organization Management
+- Employee Management
+- Performance Management
+- Leave Management
+- Attendance
+- Training & Certification
+- Reports
+
+Output only:
+
+1. System architecture
+2. Database architecture
+3. Module dependency diagram
+4. Tenant isolation strategy
+5. RBAC matrix
+6. API architecture
+7. Folder structure
+
+Do not generate code.
+_____________________________________
+
+Phase 2 — Database Design
+
+After architecture is approved.
+
+Using the approved HRMS architecture.
+
+Generate complete database schema.
+
+Requirements:
+- PostgreSQL
+- UUID primary keys
+- Audit columns
+- Soft delete support
+- Multi-tenant support
+
+Generate:
+
+1. Tables
+2. Relationships
+3. Indexes
+4. Constraints
+5. ER Diagram in text format
+
+Modules:
+- Users
+- Roles
+- Permissions
+- Organizations
+- Employees
+- Goals
+- KRAs
+- KPIs
+- Reviews
+- Trainings
+- Certifications
+- Attachments
+- Notifications
+
+Do not generate application code.
+___________________________________________________
+
+Phase 3 — RBAC
+
+This is usually forgotten and later becomes painful.
+
+Using the generated schema.
+
+Create a complete RBAC model.
+
+Roles:
+- Super Admin
+- HR Admin
+- Manager
+- Employee
+
+Output:
+
+1. Permission matrix
+2. Access control rules
+3. Approval hierarchy
+4. Screen-level permissions
+5. API authorization rules
+
+No code.
+____________________________________________
+
+Phase 4 — Performance Management Module
+
+Now build only your KRA/KPI system.
+
+Build Performance Management module.
+
+Entities:
+- Goal
+- KRA
+- KPI
+- Review Cycle
+- Review
+- Evidence
+
+Relationships:
+Goal -> KRA -> KPI
+
+Features:
+
+- Goal assignment
+- Self review
+- Manager review
+- Evidence upload
+- Rating system
+- Weightage
+- Final scoring
+- Approval workflow
+
+Output:
+
+1. Module architecture
+2. Tables
+3. APIs
+4. UI screens
+5. Workflow states
+6. Validation rules
+
+No implementation code.
+___________________________________________
+
+Phase 5 — Import Your KRA/KPI Template
+
+Use your screenshot data here.
+
+Create default Performance Template.
+
+Goal:
+Operational Excellence
+
+KRA:
+Ensure Client Cloud Environment is Stable
+KPI:
+Less than 5 P1 tickets
+
+KRA:
+Increase Efficiency in Responding and Fixing User Problems
+KPI:
+SLA breach percentage below 5%
+
+KRA:
+Governance and Reporting
+KPI:
+100% cadence reports submitted on time
+Participation in all client monthly meetings
+
+KRA:
+Increase Client Satisfaction with Technology Operations
+KPI:
+CSAT above 85%
+Less than 3 operational escalations
+
+Goal:
+Technical Competencies and Corporate Citizenship
+
+KRA:
+Professional Development
+KPI:
+Mandatory trainings completed
+At least one certification
+
+KRA:
+Corporate Citizenship
+KPI:
+At least one whitepaper or blog
+
+Generate:
+1. Seed data
+2. Weightage recommendations
+3. Rating criteria
+4. Scoring formulas
+____________________________________________
+
+Phase 6 — UI Generation
+
+Only after data model is stable.
+
+Generate complete UI specification.
+
+Pages:
+
+- Login
+- Dashboard
+- Employee Profile
+- Goal Management
+- KRA Management
+- KPI Tracking
+- Review Cycle Management
+- Self Assessment
+- Manager Assessment
+- Reports
+
+For each page generate:
+
+- Layout
+- Components
+- Forms
+- Tables
+- Actions
+- Validation
+- Permissions
+
+No frontend code.
+_________________________________________
+
+Phase 7 — API Generation
+Generate REST API specification.
+
+Requirements:
+- JWT Authentication
+- Pagination
+- Sorting
+- Filtering
+- Audit Logging
+
+Generate:
+
+Endpoint
+Method
+Request
+Response
+Validation
+Permissions
+
+For all HRMS modules.
+_______________________________________________
+
+Phase 8 — Backend Code
+
+Only now.
+
+Using the finalized schema and API specification.
+
+Generate backend implementation.
+
+Stack:
+- Node.js
+- Express
+- PostgreSQL
+- Prisma ORM
+
+Generate:
+1. Models
+2. Services
+3. Controllers
+4. Routes
+5. Middleware
+6. Validation
+7. Error Handling
+
+One module at a time.
+
+Start with Authentication.
+___________________________________________
+
+Phase 9 — Frontend Code
+Generate frontend implementation.
+
+Stack:
+- React
+- TypeScript
+- Tailwind
+- Shadcn UI
+
+Generate:
+
+1. Layout
+2. Routing
+3. Forms
+4. Data tables
+5. API integration
+6. State management
+
+Start with Authentication module.
+__________________________________________
+
+Phase 10 — Reports & Dashboards
+Generate analytics module.
+
+Reports:
+
+- Goal completion
+- KPI achievement
+- Department performance
+- Certification completion
+- Employee ranking
+
+Generate:
+
+Metrics
+Queries
+Widgets
+Charts
+Filters
+Export options
+Token-Efficient Strategy
+__________________________________________
+
+Use this workflow:
+
+Architecture
+↓
+Database
+↓
+RBAC
+↓
+Performance Module
+↓
+Seed KRA/KPI Data
+↓
+UI Specs
+↓
+API Specs
+↓
+Backend Code
+↓
+Frontend Code
+↓
+Reports
+
