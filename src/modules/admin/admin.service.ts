@@ -1,17 +1,17 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
-import { prisma } from "../../lib/prisma.js";
+import { prisma } from "../../core/db.js";
 import {
   AuthorizationError,
   ConflictError,
   NotFoundError,
   ValidationError
-} from "../../shared/errors/app-error.js";
+} from "../../core/errors.js";
 import {
   assertOrganizationInScope,
   organizationEntityWhere,
   resolveOrganizationScope
-} from "../../shared/authorization/organization-scope.js";
-import type { RequestContext } from "../../shared/request-context.js";
+} from "../../core/organization-scope.js";
+import type { RequestContext } from "../../core/request-context.js";
 import { auditService } from "../audit/audit.service.js";
 import { cryptoService } from "../auth/crypto.service.js";
 import type { AuthorizationAssignment } from "../auth/auth.types.js";
@@ -32,6 +32,7 @@ interface ListInput {
   tenantId?: string;
   departmentId?: string;
   search?: string;
+  role?: "employee" | "manager";
   organizationType?: string;
   status?: string;
   sort: "name" | "-name" | "createdAt" | "-createdAt";
@@ -302,17 +303,22 @@ export class AdminService {
     context: RequestContext
   ): Promise<void> {
     const organization = await prisma.organization.findFirst({
-      where: { id, deletedAt: null, ...tenantWhere(actor) },
-      include: {
-        _count: { select: { children: true, roleAssignments: true } }
-      }
+      where: { id, deletedAt: null, ...tenantWhere(actor) }
     });
     if (!organization) throw new NotFoundError("Organization");
     await assertOrganizationInScope(prisma, actor, organization.tenantId, organization.id);
-    if (organization._count.children || organization._count.roleAssignments) {
+    const dependencies = await organizationDeleteDependencies(
+      prisma,
+      organization.tenantId,
+      id
+    );
+    const activeDependencies = Object.entries(dependencies)
+      .filter(([, count]) => count > 0)
+      .map(([name, count]) => ({ name, count }));
+    if (activeDependencies.length > 0) {
       throw new ConflictError(
         "ORGANIZATION_IN_USE",
-        "Move child organizations and scoped role assignments before deleting."
+        "Move or archive related records before deleting this organization."
       );
     }
     await prisma.$transaction(async (tx) => {
@@ -397,6 +403,20 @@ export class AdminService {
                 { email: { contains: input.search, mode: "insensitive" } },
                 { username: { contains: input.search, mode: "insensitive" } }
               ]
+            }
+          : {}),
+        ...(input.role
+          ? {
+              roleAssignments: {
+                some: {
+                  deletedAt: null,
+                  ...(tenantId ? { tenantId } : {}),
+                  role:
+                    input.role === "manager"
+                      ? { roleType: "MANAGER" as const, deletedAt: null }
+                      : { code: "EMPLOYEE", deletedAt: null }
+                }
+              }
             }
           : {})
       },
@@ -725,14 +745,24 @@ export class AdminService {
       data.roleId,
       assignment.departmentId
     );
-    const existing = await prisma.user.findUnique({
-      where: { email: data.email }
+    const existing = await prisma.user.findFirst({
+      where: { email: data.email, deletedAt: null }
     });
     const usernameOwner = data.username
-      ? await prisma.user.findUnique({
-          where: { username: data.username }
+      ? await prisma.user.findFirst({
+          where: { username: data.username, deletedAt: null }
         })
       : null;
+    const deletedIdentityCollisions = await prisma.user.findMany({
+      where: {
+        deletedAt: { not: null },
+        OR: [
+          { email: data.email },
+          ...(data.username ? [{ username: data.username }] : [])
+        ]
+      },
+      select: { id: true }
+    });
     if (usernameOwner && usernameOwner.email !== data.email) {
       throw new ConflictError(
         "USERNAME_EXISTS",
@@ -741,12 +771,11 @@ export class AdminService {
     }
     if (
       existing &&
-      (await prisma.tenantMembership.findUnique({
+      (await prisma.tenantMembership.findFirst({
         where: {
-          tenantId_userId: {
-            tenantId,
-            userId: existing.id
-          }
+          tenantId,
+          userId: existing.id,
+          deletedAt: null
         }
       }))
     ) {
@@ -766,6 +795,12 @@ export class AdminService {
       : await cryptoService.hashPassword(data.password);
 
     return prisma.$transaction(async (tx) => {
+      await releaseDeletedUserIdentities(
+        tx,
+        deletedIdentityCollisions.map((user) => user.id),
+        actor.userId
+      );
+
       const user = existing
         ? await tx.user.update({
             where: { id: existing.id },
@@ -790,14 +825,28 @@ export class AdminService {
             }
           });
 
-      await tx.tenantMembership.create({
-        data: {
+      await tx.tenantMembership.upsert({
+        where: {
+          tenantId_userId: {
+            tenantId,
+            userId: user.id
+          }
+        },
+        create: {
           tenantId,
           userId: user.id,
           status: membershipStatus(data.status),
           joinedAt: data.status === "ACTIVE" ? new Date() : null,
           createdBy: actor.userId,
           updatedBy: actor.userId
+        },
+        update: {
+          status: membershipStatus(data.status),
+          joinedAt: data.status === "ACTIVE" ? new Date() : null,
+          deletedAt: null,
+          deletedBy: null,
+          updatedBy: actor.userId,
+          rowVersion: { increment: 1 }
         }
       });
 
@@ -1004,57 +1053,101 @@ export class AdminService {
     if (!user) throw new NotFoundError("User");
     if (tenantId) await assertUserInOrganizationScope(prisma, actor, tenantId, id);
     await prisma.$transaction(async (tx) => {
-      await tx.tenantMembership.updateMany({
-        where: {
-          userId: id,
-          deletedAt: null,
-          ...(tenantId ? { tenantId } : {})
-        },
+      await assertUserHasNoOtherAccessForHardDelete(tx, id, tenantId);
+      const archive = await buildDeletedUserArchive(tx, id);
+      const archived = await tx.deletedUserArchive.create({
         data: {
-          status: "DISABLED",
-          deletedAt: new Date(),
-          deletedBy: actor.userId
+          originalUserId: id,
+          tenantId,
+          deletedBy: actor.userId,
+          reason: "ADMIN_DELETE",
+          user: jsonValue(archive.user),
+          relatedData: jsonValue(archive.relatedData),
+          metadata: jsonValue({
+            deletedFromTenantId: tenantId,
+            deletedBy: actor.userId,
+            requestId: context.requestId,
+            correlationId: context.correlationId
+          })
+        },
+        select: { id: true }
+      });
+
+      await tx.performanceEvidence.deleteMany({
+        where: {
+          OR: [
+            { uploadedByUserId: id },
+            { review: { employeeUserId: id } }
+          ]
         }
+      });
+      await tx.performanceReview.deleteMany({
+        where: { employeeUserId: id }
+      });
+      await tx.performanceReview.updateMany({
+        where: { managerUserId: id },
+        data: {
+          managerUserId: null,
+          updatedBy: actor.userId,
+          rowVersion: { increment: 1 }
+        }
+      });
+      await tx.performanceGoal.updateMany({
+        where: { ownerUserId: id },
+        data: {
+          ownerUserId: null,
+          updatedBy: actor.userId,
+          rowVersion: { increment: 1 }
+        }
+      });
+      await tx.hrmsRecord.updateMany({
+        where: { subjectUserId: id },
+        data: {
+          subjectUserId: null,
+          updatedBy: actor.userId,
+          rowVersion: { increment: 1 }
+        }
+      });
+      await tx.hrmsRecord.updateMany({
+        where: { ownerUserId: id },
+        data: {
+          ownerUserId: null,
+          updatedBy: actor.userId,
+          rowVersion: { increment: 1 }
+        }
+      });
+      await tx.hrmsRecord.updateMany({
+        where: { assignedToUserId: id },
+        data: {
+          assignedToUserId: null,
+          updatedBy: actor.userId,
+          rowVersion: { increment: 1 }
+        }
+      });
+      await tx.organization.updateMany({
+        where: { managerUserId: id },
+        data: {
+          managerUserId: null,
+          updatedBy: actor.userId,
+          rowVersion: { increment: 1 }
+        }
+      });
+      await tx.auditEvent.updateMany({
+        where: { actorUserId: id },
+        data: { actorUserId: null }
+      });
+      await tx.auditEvent.updateMany({
+        where: { effectiveUserId: id },
+        data: { effectiveUserId: null }
       });
       await tx.roleAssignment.updateMany({
-        where: {
-          userId: id,
-          deletedAt: null,
-          ...(tenantId ? { tenantId } : {})
-        },
-        data: { deletedAt: new Date(), deletedBy: actor.userId }
+        where: { assignedBy: id },
+        data: { assignedBy: null }
       });
-      await tx.authSession.updateMany({
-        where: {
-          userId: id,
-          revokedAt: null,
-          ...(tenantId ? { tenantId } : {})
-        },
-        data: { revokedAt: new Date(), revocationReason: "ADMIN_ACTION" }
-      });
-      const remainingMemberships = await tx.tenantMembership.count({
-        where: { userId: id, deletedAt: null }
-      });
-      const platformAssignments = await tx.roleAssignment.count({
-        where: {
-          userId: id,
-          scopeType: "PLATFORM",
-          tenantId: null,
-          deletedAt: null
-        }
-      });
-      if (remainingMemberships === 0 && platformAssignments === 0) {
-        await tx.user.update({
-          where: { id },
-          data: {
-            status: "DISABLED",
-            deletedAt: new Date(),
-            deletedBy: actor.userId,
-            updatedBy: actor.userId,
-            rowVersion: { increment: 1 }
-          }
-        });
-      }
+      await tx.authSession.deleteMany({ where: { userId: id } });
+      await tx.passwordResetToken.deleteMany({ where: { userId: id } });
+      await tx.roleAssignment.deleteMany({ where: { userId: id } });
+      await tx.tenantMembership.deleteMany({ where: { userId: id } });
       await auditService.record(tx, {
         tenantId: actor.tenantId,
         actorUserId: actor.userId,
@@ -1063,9 +1156,10 @@ export class AdminService {
         entityType: "user",
         entityId: id,
         result: "SUCCESS",
-        metadata: { targetTenantId: tenantId },
+        metadata: { targetTenantId: tenantId, archiveId: archived.id },
         context
       });
+      await tx.user.delete({ where: { id } });
     });
   }
 
@@ -1382,6 +1476,189 @@ function serialize<T>(value: T): T {
       typeof item === "bigint" ? item.toString() : item
     )
   ) as T;
+}
+
+function jsonValue(value: unknown): Prisma.InputJsonValue {
+  return serialize(value) as Prisma.InputJsonValue;
+}
+
+async function assertUserHasNoOtherAccessForHardDelete(
+  db: Transaction | PrismaClient,
+  userId: string,
+  tenantId: string | null
+): Promise<void> {
+  if (!tenantId) return;
+  const [otherMemberships, otherRoleAssignments] = await Promise.all([
+    db.tenantMembership.count({
+      where: { userId, tenantId: { not: tenantId } }
+    }),
+    db.roleAssignment.count({
+      where: {
+        userId,
+        OR: [{ tenantId: null }, { tenantId: { not: tenantId } }]
+      }
+    })
+  ]);
+  if (otherMemberships > 0 || otherRoleAssignments > 0) {
+    throw new ConflictError(
+      "USER_HAS_OTHER_ACCESS",
+      "This user still has access outside the selected tenant. Remove that access or delete the user from a platform-wide context before hard deletion."
+    );
+  }
+}
+
+async function buildDeletedUserArchive(
+  db: Transaction | PrismaClient,
+  userId: string
+) {
+  const user = await db.user.findUnique({ where: { id: userId } });
+  if (!user) throw new NotFoundError("User");
+
+  const [
+    memberships,
+    roleAssignments,
+    assignedRoleAssignments,
+    sessions,
+    passwordResetTokens,
+    managedOrganizations,
+    subjectHrmsRecords,
+    ownedHrmsRecords,
+    assignedHrmsRecords,
+    ownedPerformanceGoals,
+    employeeReviews,
+    managerReviews,
+    uploadedEvidence,
+    auditEvents
+  ] = await Promise.all([
+    db.tenantMembership.findMany({ where: { userId } }),
+    db.roleAssignment.findMany({ where: { userId } }),
+    db.roleAssignment.findMany({ where: { assignedBy: userId } }),
+    db.authSession.findMany({ where: { userId } }),
+    db.passwordResetToken.findMany({ where: { userId } }),
+    db.organization.findMany({ where: { managerUserId: userId } }),
+    db.hrmsRecord.findMany({ where: { subjectUserId: userId } }),
+    db.hrmsRecord.findMany({ where: { ownerUserId: userId } }),
+    db.hrmsRecord.findMany({ where: { assignedToUserId: userId } }),
+    db.performanceGoal.findMany({ where: { ownerUserId: userId } }),
+    db.performanceReview.findMany({
+      where: { employeeUserId: userId },
+      include: { evidence: true }
+    }),
+    db.performanceReview.findMany({
+      where: { managerUserId: userId },
+      include: { evidence: true }
+    }),
+    db.performanceEvidence.findMany({ where: { uploadedByUserId: userId } }),
+    db.auditEvent.findMany({
+      where: {
+        OR: [
+          { actorUserId: userId },
+          { effectiveUserId: userId },
+          { entityType: "user", entityId: userId }
+        ]
+      },
+      orderBy: { occurredAt: "asc" }
+    })
+  ]);
+
+  return serialize({
+    user,
+    relatedData: {
+      memberships,
+      roleAssignments,
+      assignedRoleAssignments,
+      sessions,
+      passwordResetTokens,
+      managedOrganizations,
+      subjectHrmsRecords,
+      ownedHrmsRecords,
+      assignedHrmsRecords,
+      ownedPerformanceGoals,
+      employeeReviews,
+      managerReviews,
+      uploadedEvidence,
+      auditEvents
+    }
+  });
+}
+
+async function organizationDeleteDependencies(
+  db: PrismaClient,
+  tenantId: string,
+  organizationId: string
+) {
+  const [
+    childOrganizations,
+    scopedRoleAssignments,
+    departmentRoles,
+    hrmsRecords,
+    reviewCycles,
+    performanceGoals,
+    performanceReviews
+  ] = await Promise.all([
+    db.organization.count({
+      where: { tenantId, parentId: organizationId, deletedAt: null }
+    }),
+    db.roleAssignment.count({
+      where: { tenantId, organizationId, deletedAt: null }
+    }),
+    db.role.count({
+      where: { tenantId, departmentId: organizationId, deletedAt: null }
+    }),
+    db.hrmsRecord.count({
+      where: { tenantId, organizationId, deletedAt: null }
+    }),
+    db.performanceReviewCycle.count({
+      where: { tenantId, organizationId, deletedAt: null }
+    }),
+    db.performanceGoal.count({
+      where: { tenantId, organizationId, deletedAt: null }
+    }),
+    db.performanceReview.count({
+      where: { tenantId, organizationId, deletedAt: null }
+    })
+  ]);
+
+  return {
+    childOrganizations,
+    scopedRoleAssignments,
+    departmentRoles,
+    hrmsRecords,
+    reviewCycles,
+    performanceGoals,
+    performanceReviews
+  };
+}
+
+async function releaseDeletedUserIdentities(
+  db: Transaction | PrismaClient,
+  userIds: string[],
+  actorUserId: string
+): Promise<void> {
+  for (const userId of [...new Set(userIds)]) {
+    await db.user.updateMany({
+      where: { id: userId, deletedAt: { not: null } },
+      data: {
+        email: deletedUserEmail(userId),
+        username: deletedUsername(userId),
+        passwordHash: null,
+        status: "DISABLED",
+        emailVerifiedAt: null,
+        mfaEnabled: false,
+        mfaSecretEncrypted: null,
+        updatedBy: actorUserId,
+        rowVersion: { increment: 1 }
+      }
+    });
+  }
+}
+
+function deletedUserEmail(userId: string): string {
+  return `deleted+${userId}@example.invalid`;
+}
+
+function deletedUsername(userId: string): string {
+  return `deleted_${userId.replaceAll("-", "")}`;
 }
 
 function resolveTenant(

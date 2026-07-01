@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { AuthenticationError } from "../../shared/errors/app-error.js";
+import { AuthenticationError } from "../../core/errors.js";
 import { adminService } from "./admin.service.js";
 
 export class AdminController {
@@ -176,6 +176,7 @@ function listInput(req: Request) {
     ...(req.query.tenantId ? { tenantId: String(req.query.tenantId) } : {}),
     ...(req.query.departmentId ? { departmentId: String(req.query.departmentId) } : {}),
     ...(req.query.search ? { search: String(req.query.search) } : {}),
+    ...(req.query.role ? { role: String(req.query.role) as "employee" | "manager" } : {}),
     ...(req.query.organizationType
       ? { organizationType: String(req.query.organizationType) }
       : {}),

@@ -4,8 +4,8 @@ import {
   establishTenantAccess,
   requireAnyPermission,
   requirePermissions
-} from "../auth/auth.middleware.js";
-import { validate } from "../../shared/middleware/validate.middleware.js";
+} from "../../core/auth.js";
+import { validate } from "../../core/validate.middleware.js";
 import { adminController } from "./admin.controller.js";
 import {
   adminListQuerySchema,
@@ -18,7 +18,7 @@ import {
   updateRoleSchema,
   updateTenantSchema,
   updateUserSchema
-} from "./admin.validation.js";
+} from "./admin.schema.js";
 
 export const adminRouter: ExpressRouter = Router();
 adminRouter.use(authenticate);

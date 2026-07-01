@@ -1,8 +1,8 @@
 import { createServer } from "node:http";
 import { createApp } from "./app.js";
-import { env } from "./config/env.js";
-import { logger } from "./config/logger.js";
-import { prisma } from "./lib/prisma.js";
+import { env } from "./core/config.js";
+import { logger } from "./core/logger.js";
+import { prisma } from "./core/db.js";
 
 const server = createServer(createApp());
 

@@ -1,0 +1,222 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1050" viewBox="0 0 1600 1050" role="img" aria-labelledby="title desc">
+  <title id="title">SaaS HRMS Project Flow Diagram</title>
+  <desc id="desc">Colorful flow diagram showing the SaaS HRMS frontend, API, domain services, Prisma, database, audit, and major product workflows.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f8fafc"/>
+      <stop offset="45%" stop-color="#eef6ff"/>
+      <stop offset="100%" stop-color="#f7f0ff"/>
+    </linearGradient>
+    <linearGradient id="frontend" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+    <linearGradient id="api" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8b5cf6"/>
+      <stop offset="100%" stop-color="#c026d3"/>
+    </linearGradient>
+    <linearGradient id="services" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#22c55e"/>
+      <stop offset="100%" stop-color="#0f766e"/>
+    </linearGradient>
+    <linearGradient id="data" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#ef4444"/>
+    </linearGradient>
+    <linearGradient id="security" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#475569"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="15" flood-color="#0f172a" flood-opacity="0.16"/>
+    </filter>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#0f172a" flood-opacity="0.10"/>
+    </filter>
+    <marker id="arrowBlue" markerWidth="13" markerHeight="13" refX="11" refY="6.5" orient="auto">
+      <path d="M1,1 L12,6.5 L1,12 Z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowPurple" markerWidth="13" markerHeight="13" refX="11" refY="6.5" orient="auto">
+      <path d="M1,1 L12,6.5 L1,12 Z" fill="#9333ea"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="13" markerHeight="13" refX="11" refY="6.5" orient="auto">
+      <path d="M1,1 L12,6.5 L1,12 Z" fill="#16a34a"/>
+    </marker>
+    <marker id="arrowOrange" markerWidth="13" markerHeight="13" refX="11" refY="6.5" orient="auto">
+      <path d="M1,1 L12,6.5 L1,12 Z" fill="#f97316"/>
+    </marker>
+    <style>
+      .title { font: 800 44px Inter, Segoe UI, Arial, sans-serif; fill: #0f172a; }
+      .subtitle { font: 500 18px Inter, Segoe UI, Arial, sans-serif; fill: #475569; }
+      .section-title { font: 800 18px Inter, Segoe UI, Arial, sans-serif; fill: #0f172a; letter-spacing: .2px; }
+      .node-title { font: 800 18px Inter, Segoe UI, Arial, sans-serif; fill: #ffffff; }
+      .node-subtitle { font: 500 13px Inter, Segoe UI, Arial, sans-serif; fill: rgba(255,255,255,.86); }
+      .small-title { font: 800 15px Inter, Segoe UI, Arial, sans-serif; fill: #0f172a; }
+      .small-text { font: 500 12px Inter, Segoe UI, Arial, sans-serif; fill: #475569; }
+      .pill { font: 700 12px Inter, Segoe UI, Arial, sans-serif; fill: #334155; }
+      .lane { fill: rgba(255,255,255,.72); stroke: rgba(148,163,184,.45); stroke-width: 1.5; }
+      .card { fill: #ffffff; stroke: rgba(148,163,184,.45); stroke-width: 1.5; filter: url(#softShadow); }
+      .flow-blue { stroke: #2563eb; stroke-width: 4; fill: none; marker-end: url(#arrowBlue); }
+      .flow-purple { stroke: #9333ea; stroke-width: 4; fill: none; marker-end: url(#arrowPurple); }
+      .flow-green { stroke: #16a34a; stroke-width: 4; fill: none; marker-end: url(#arrowGreen); }
+      .flow-orange { stroke: #f97316; stroke-width: 4; fill: none; marker-end: url(#arrowOrange); }
+      .flow-muted { stroke: #94a3b8; stroke-width: 3; stroke-dasharray: 8 8; fill: none; marker-end: url(#arrowBlue); }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1050" fill="url(#bg)"/>
+  <circle cx="1430" cy="120" r="210" fill="#dbeafe" opacity="0.55"/>
+  <circle cx="160" cy="920" r="240" fill="#fae8ff" opacity="0.55"/>
+  <circle cx="1250" cy="890" r="190" fill="#dcfce7" opacity="0.45"/>
+
+  <text x="80" y="78" class="title">SaaS HRMS Project Flow</text>
+  <text x="82" y="112" class="subtitle">React/Vite frontend, Express API, Prisma/PostgreSQL data layer, RBAC, audit, and performance workflows</text>
+
+  <rect x="70" y="155" width="1460" height="575" rx="26" class="lane"/>
+  <text x="100" y="195" class="section-title">Runtime Request Flow</text>
+
+  <g filter="url(#shadow)">
+    <rect x="115" y="250" width="170" height="110" rx="22" fill="url(#frontend)"/>
+    <text x="145" y="296" class="node-title">User</text>
+    <text x="145" y="322" class="node-subtitle">Browser session</text>
+    <text x="145" y="342" class="node-subtitle">HRMS operator</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="365" y="215" width="225" height="180" rx="24" fill="url(#frontend)"/>
+    <text x="397" y="260" class="node-title">React Frontend</text>
+    <text x="397" y="289" class="node-subtitle">Vite + React Router</text>
+    <text x="397" y="315" class="node-subtitle">AuthGuard</text>
+    <text x="397" y="337" class="node-subtitle">PermissionGuard</text>
+    <text x="397" y="359" class="node-subtitle">Zustand auth store</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="675" y="215" width="225" height="180" rx="24" fill="url(#api)"/>
+    <text x="707" y="260" class="node-title">API Client</text>
+    <text x="707" y="289" class="node-subtitle">fetch wrapper</text>
+    <text x="707" y="315" class="node-subtitle">Bearer access token</text>
+    <text x="707" y="337" class="node-subtitle">Refresh retry on 401</text>
+    <text x="707" y="359" class="node-subtitle">/api/v1 base path</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="985" y="205" width="245" height="200" rx="24" fill="url(#security)"/>
+    <text x="1017" y="250" class="node-title">Express API</text>
+    <text x="1017" y="279" class="node-subtitle">helmet, CORS, cookies</text>
+    <text x="1017" y="305" class="node-subtitle">request context</text>
+    <text x="1017" y="327" class="node-subtitle">pino logging</text>
+    <text x="1017" y="349" class="node-subtitle">Zod validation</text>
+    <text x="1017" y="371" class="node-subtitle">error handler</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="1320" y="215" width="170" height="180" rx="24" fill="url(#services)"/>
+    <text x="1352" y="260" class="node-title">Services</text>
+    <text x="1352" y="289" class="node-subtitle">Auth</text>
+    <text x="1352" y="315" class="node-subtitle">Admin</text>
+    <text x="1352" y="337" class="node-subtitle">Performance</text>
+    <text x="1352" y="359" class="node-subtitle">Audit</text>
+  </g>
+
+  <path d="M285 305 C318 305 330 305 365 305" class="flow-blue"/>
+  <path d="M590 305 C630 305 635 305 675 305" class="flow-blue"/>
+  <path d="M900 305 C940 305 945 305 985 305" class="flow-purple"/>
+  <path d="M1230 305 C1275 305 1280 305 1320 305" class="flow-green"/>
+
+  <g>
+    <rect x="370" y="445" width="180" height="46" rx="23" fill="#e0f2fe" stroke="#7dd3fc"/>
+    <text x="405" y="474" class="pill">Frontend port 5173</text>
+    <rect x="645" y="445" width="190" height="46" rx="23" fill="#f3e8ff" stroke="#d8b4fe"/>
+    <text x="678" y="474" class="pill">Vite proxy /api</text>
+    <rect x="1005" y="445" width="190" height="46" rx="23" fill="#e2e8f0" stroke="#94a3b8"/>
+    <text x="1035" y="474" class="pill">Backend port 3000</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="210" y="555" width="250" height="120" rx="22" fill="#ffffff"/>
+    <rect x="210" y="555" width="250" height="16" rx="8" fill="#38bdf8"/>
+    <text x="235" y="605" class="small-title">Protected Pages</text>
+    <text x="235" y="633" class="small-text">Dashboard, profile, security, sessions</text>
+    <text x="235" y="655" class="small-text">Admin and performance routes</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="520" y="555" width="250" height="120" rx="22" fill="#ffffff"/>
+    <rect x="520" y="555" width="250" height="16" rx="8" fill="#a855f7"/>
+    <text x="545" y="605" class="small-title">API Modules</text>
+    <text x="545" y="633" class="small-text">/auth, /admin, /performance</text>
+    <text x="545" y="655" class="small-text">Health endpoint at /health/live</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="830" y="555" width="250" height="120" rx="22" fill="#ffffff"/>
+    <rect x="830" y="555" width="250" height="16" rx="8" fill="#22c55e"/>
+    <text x="855" y="605" class="small-title">Authorization</text>
+    <text x="855" y="633" class="small-text">JWT authentication</text>
+    <text x="855" y="655" class="small-text">Tenant scope and RBAC permissions</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="1140" y="555" width="250" height="120" rx="22" fill="#ffffff"/>
+    <rect x="1140" y="555" width="250" height="16" rx="8" fill="#fb923c"/>
+    <text x="1165" y="605" class="small-title">Data Persistence</text>
+    <text x="1165" y="633" class="small-text">Prisma client</text>
+    <text x="1165" y="655" class="small-text">PostgreSQL schema and migrations</text>
+  </g>
+
+  <path d="M460 615 C495 615 500 615 520 615" class="flow-muted"/>
+  <path d="M770 615 C805 615 810 615 830 615" class="flow-muted"/>
+  <path d="M1080 615 C1115 615 1120 615 1140 615" class="flow-muted"/>
+
+  <rect x="70" y="770" width="1460" height="220" rx="26" class="lane"/>
+  <text x="100" y="810" class="section-title">Product Workflows</text>
+
+  <g filter="url(#softShadow)">
+    <rect x="115" y="845" width="285" height="95" rx="22" fill="#ffffff" stroke="#7dd3fc" stroke-width="2"/>
+    <circle cx="157" cy="892" r="23" fill="#0ea5e9"/>
+    <text x="149" y="900" font-family="Inter, Segoe UI, Arial" font-size="22" font-weight="800" fill="#ffffff">1</text>
+    <text x="195" y="883" class="small-title">Login and Sessions</text>
+    <text x="195" y="911" class="small-text">Credentials, MFA, refresh rotation</text>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="460" y="845" width="285" height="95" rx="22" fill="#ffffff" stroke="#c084fc" stroke-width="2"/>
+    <circle cx="502" cy="892" r="23" fill="#9333ea"/>
+    <text x="493" y="900" font-family="Inter, Segoe UI, Arial" font-size="22" font-weight="800" fill="#ffffff">2</text>
+    <text x="540" y="883" class="small-title">Admin and RBAC</text>
+    <text x="540" y="911" class="small-text">Tenants, orgs, users, roles</text>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="805" y="845" width="285" height="95" rx="22" fill="#ffffff" stroke="#86efac" stroke-width="2"/>
+    <circle cx="847" cy="892" r="23" fill="#16a34a"/>
+    <text x="838" y="900" font-family="Inter, Segoe UI, Arial" font-size="22" font-weight="800" fill="#ffffff">3</text>
+    <text x="885" y="883" class="small-title">Performance Reviews</text>
+    <text x="885" y="911" class="small-text">Cycles, goals, KRAs, KPIs</text>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="1150" y="845" width="285" height="95" rx="22" fill="#ffffff" stroke="#fdba74" stroke-width="2"/>
+    <circle cx="1192" cy="892" r="23" fill="#f97316"/>
+    <text x="1183" y="900" font-family="Inter, Segoe UI, Arial" font-size="22" font-weight="800" fill="#ffffff">4</text>
+    <text x="1230" y="883" class="small-title">Audit and Reporting</text>
+    <text x="1230" y="911" class="small-text">Request context and audit events</text>
+  </g>
+
+  <path d="M400 892 C430 892 430 892 460 892" class="flow-blue"/>
+  <path d="M745 892 C775 892 775 892 805 892" class="flow-purple"/>
+  <path d="M1090 892 C1120 892 1120 892 1150 892" class="flow-green"/>
+
+  <g>
+    <rect x="1115" y="64" width="355" height="58" rx="29" fill="#ffffff" stroke="#cbd5e1" filter="url(#softShadow)"/>
+    <circle cx="1150" cy="93" r="10" fill="#0ea5e9"/>
+    <text x="1168" y="99" class="pill">Frontend</text>
+    <circle cx="1250" cy="93" r="10" fill="#9333ea"/>
+    <text x="1268" y="99" class="pill">API</text>
+    <circle cx="1320" cy="93" r="10" fill="#16a34a"/>
+    <text x="1338" y="99" class="pill">Services</text>
+    <circle cx="1422" cy="93" r="10" fill="#f97316"/>
+    <text x="1440" y="99" class="pill">Data</text>
+  </g>
+</svg>

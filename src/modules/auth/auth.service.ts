@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { Prisma, PrismaClient, User } from "@prisma/client";
 import { authenticator } from "otplib";
-import { env } from "../../config/env.js";
-import { prisma } from "../../lib/prisma.js";
+import { env } from "../../core/config.js";
+import { prisma } from "../../core/db.js";
 import {
   AuthenticationError,
   ConflictError,
   NotFoundError
-} from "../../shared/errors/app-error.js";
-import type { RequestContext } from "../../shared/request-context.js";
+} from "../../core/errors.js";
+import type { RequestContext } from "../../core/request-context.js";
 import { auditService } from "../audit/audit.service.js";
 import { cryptoService } from "./crypto.service.js";
 import { passwordResetNotifier } from "./password-reset-notifier.js";
@@ -18,7 +18,7 @@ import type {
   ForgotPasswordInput,
   LoginInput,
   ResetPasswordInput
-} from "./auth.validation.js";
+} from "./auth.schema.js";
 import type { AuthTokens, ClientMetadata } from "./auth.types.js";
 
 type DatabaseClient = PrismaClient | Prisma.TransactionClient;

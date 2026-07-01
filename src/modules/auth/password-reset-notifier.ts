@@ -1,5 +1,5 @@
-import { logger } from "../../config/logger.js";
-import { env } from "../../config/env.js";
+import { logger } from "../../core/logger.js";
+import { env } from "../../core/config.js";
 
 export interface PasswordResetNotifier {
   send(input: {

@@ -1,4 +1,4 @@
-import { apiRequest } from "@/lib/api-client";
+import { apiRequest, requireUuid } from "@/shared/api/http";
 import type {
   AdminPermission,
   AdminRole,
@@ -12,6 +12,7 @@ interface ListFilters {
   tenantId?: string;
   departmentId?: string;
   search?: string;
+  role?: "employee" | "manager";
   status?: string;
   organizationType?: string;
   cursor?: string;
@@ -72,7 +73,8 @@ export const adminApi = {
     });
   },
   deleteOrganization(id: string, tenantId?: string) {
-    return apiRequest<void>(`/admin/organizations/${id}`, {
+    const organizationId = requireUuid(id, "organization");
+    return apiRequest<void>(`/admin/organizations/${organizationId}`, {
       method: "DELETE",
       headers: tenantId ? { "x-tenant-id": tenantId } : undefined
     });
@@ -113,7 +115,8 @@ export const adminApi = {
     });
   },
   deleteRole(id: string, tenantId?: string) {
-    return apiRequest<void>(`/admin/roles/${id}`, {
+    const roleId = requireUuid(id, "role");
+    return apiRequest<void>(`/admin/roles/${roleId}`, {
       method: "DELETE",
       headers: tenantId ? { "x-tenant-id": tenantId } : undefined
     });
@@ -143,7 +146,8 @@ export const adminApi = {
     });
   },
   deleteUser(id: string, tenantId?: string) {
-    return apiRequest<void>(`/admin/users/${id}`, {
+    const userId = requireUuid(id, "user");
+    return apiRequest<void>(`/admin/users/${userId}`, {
       method: "DELETE",
       headers: tenantId ? { "x-tenant-id": tenantId } : undefined
     });

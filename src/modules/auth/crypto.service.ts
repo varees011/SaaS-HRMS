@@ -7,7 +7,7 @@ import {
   timingSafeEqual
 } from "node:crypto";
 import argon2 from "argon2";
-import { env } from "../../config/env.js";
+import { env } from "../../core/config.js";
 
 const encryptionKey = Buffer.from(env.MFA_ENCRYPTION_KEY, "hex");
 if (encryptionKey.length !== 32) {

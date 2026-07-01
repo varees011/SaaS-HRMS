@@ -13,12 +13,13 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/shared/ui/button";
 import { accessPolicy, type PermissionList } from "@/features/auth/access-policy";
 import { authApi } from "@/features/auth/auth.api";
 import { useAuthStore } from "@/features/auth/auth.store";
 import { hasAnyPermission } from "@/features/auth/permissions";
-import { cn, initials } from "@/lib/utils";
+import { cn } from "@/shared/lib/cn";
+import { initials } from "@/shared/lib/initials";
 
 const baseLinks = [
   { to: "/app", label: "Overview", icon: Gauge, end: true },

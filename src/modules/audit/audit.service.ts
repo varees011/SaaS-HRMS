@@ -1,5 +1,5 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
-import type { RequestContext } from "../../shared/request-context.js";
+import type { RequestContext } from "../../core/request-context.js";
 
 type DatabaseClient = PrismaClient | Prisma.TransactionClient;
 

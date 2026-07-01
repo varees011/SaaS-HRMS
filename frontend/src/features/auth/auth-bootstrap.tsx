@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from "react";
-import { refreshAccessToken } from "@/lib/api-client";
+import { refreshAccessToken } from "@/shared/api/http";
 import { authApi } from "./auth.api";
 import { useAuthStore } from "./auth.store";
 

@@ -1,22 +1,20 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import { accessPolicy } from "@/features/auth/access-policy";
-import { AnonymousOnly, AuthGuard } from "@/features/auth/auth-guard";
-import { PermissionGuard } from "@/features/auth/permission-guard";
+import {
+  AnonymousOnly,
+  AuthGuard,
+  ForgotPasswordPage,
+  LoginPage,
+  PermissionGuard,
+  ResetPasswordPage,
+  accessPolicy
+} from "@/features/auth";
 import { AppLayout } from "@/layouts/app-layout";
 import { AuthLayout } from "@/layouts/auth-layout";
-import { DashboardPage } from "@/pages/dashboard-page";
-import { NotFoundPage } from "@/pages/not-found-page";
-import { ProfilePage } from "@/pages/profile-page";
-import { SecurityPage } from "@/pages/security-page";
-import { SessionsPage } from "@/pages/sessions-page";
-import { ForgotPasswordPage } from "@/pages/auth/forgot-password-page";
-import { LoginPage } from "@/pages/auth/login-page";
-import { ResetPasswordPage } from "@/pages/auth/reset-password-page";
-import { TenantsPage } from "@/pages/admin/tenants-page";
-import { OrganizationsPage } from "@/pages/admin/organizations-page";
-import { UsersPage } from "@/pages/admin/users-page";
-import { RolesPage } from "@/pages/admin/roles-page";
-import { PerformancePage } from "@/pages/performance-page";
+import { DashboardPage } from "@/features/dashboard";
+import { NotFoundPage } from "@/features/shell";
+import { ProfilePage, SecurityPage, SessionsPage } from "@/features/self-service";
+import { OrganizationsPage, RolesPage, TenantsPage, UsersPage } from "@/features/admin";
+import { PerformancePage } from "@/features/performance";
 
 export function App() {
   return (

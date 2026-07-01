@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
-import { env } from "../../config/env.js";
-import { AuthenticationError } from "../../shared/errors/app-error.js";
+import { env } from "../../core/config.js";
+import { AuthenticationError } from "../../core/errors.js";
 import { authService } from "./auth.service.js";
 
 const REFRESH_COOKIE = "hrms_refresh_token";

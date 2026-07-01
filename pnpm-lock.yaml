@@ -9,7 +9,7 @@ importers:
   .:
     dependencies:
       '@prisma/client':
-        specifier: ^6.10.1
+        specifier: 6.19.3
         version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
       argon2:
         specifier: ^0.43.0
@@ -61,7 +61,7 @@ importers:
         specifier: ^24.0.3
         version: 24.13.2
       prisma:
-        specifier: ^6.10.1
+        specifier: 6.19.3
         version: 6.19.3(typescript@5.9.3)
       tsx:
         specifier: ^4.20.3

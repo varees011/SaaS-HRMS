@@ -3,7 +3,7 @@ import { authController } from "./auth.controller.js";
 import {
   authenticate,
   requirePermissions
-} from "./auth.middleware.js";
+} from "../../core/auth.js";
 import {
   changePasswordSchema,
   disableMfaSchema,
@@ -15,9 +15,9 @@ import {
   resetPasswordSchema,
   sessionParamsSchema,
   sessionsQuerySchema
-} from "./auth.validation.js";
-import { authRateLimit } from "./rate-limit.middleware.js";
-import { validate } from "../../shared/middleware/validate.middleware.js";
+} from "./auth.schema.js";
+import { authRateLimit } from "./auth-rate-limit.middleware.js";
+import { validate } from "../../core/validate.middleware.js";
 
 export const authRouter: ExpressRouter = Router();
 

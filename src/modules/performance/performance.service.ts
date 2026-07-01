@@ -1,16 +1,17 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
-import { prisma } from "../../lib/prisma.js";
+import { prisma } from "../../core/db.js";
 import {
   AuthorizationError,
+  ConflictError,
   NotFoundError,
   ValidationError
-} from "../../shared/errors/app-error.js";
+} from "../../core/errors.js";
 import {
   assertOrganizationInScope,
   organizationIdWhere,
   resolveOrganizationScope
-} from "../../shared/authorization/organization-scope.js";
-import type { RequestContext } from "../../shared/request-context.js";
+} from "../../core/organization-scope.js";
+import type { RequestContext } from "../../core/request-context.js";
 import { auditService } from "../audit/audit.service.js";
 import type { AuthorizationAssignment } from "../auth/auth.types.js";
 
@@ -194,6 +195,7 @@ export class PerformanceService {
     await ensureTenantAndOrganization(prisma, tenantId, data.organizationId);
     await assertOrganizationInScope(prisma, actor, tenantId, data.organizationId);
     await ensureMember(prisma, tenantId, data.ownerUserId);
+    await assertWeightageLimit(prisma, "goal", data.cycleId, data.weightage);
     return prisma.$transaction(async (tx) => {
       const goal = await tx.performanceGoal.create({
         data: {
@@ -223,6 +225,105 @@ export class PerformanceService {
     });
   }
 
+  async updateGoal(
+    id: string,
+    data: Partial<{
+      organizationId: string | null;
+      ownerUserId: string | null;
+      name: string;
+      description: string | null;
+      weightage: number;
+    }>,
+    actor: Actor,
+    context: RequestContext
+  ) {
+    const existing = await findGoal(id, actor);
+    await ensureTenantAndOrganization(
+      prisma,
+      existing.tenantId,
+      data.organizationId
+    );
+    if (Object.hasOwn(data, "organizationId")) {
+      await assertOrganizationInScope(
+        prisma,
+        actor,
+        existing.tenantId,
+        data.organizationId
+      );
+    }
+    await ensureMember(prisma, existing.tenantId, data.ownerUserId);
+    if (data.weightage !== undefined) {
+      await assertWeightageLimit(
+        prisma,
+        "goal",
+        existing.cycleId,
+        data.weightage,
+        id
+      );
+    }
+    return prisma.$transaction(async (tx) => {
+      const goal = await tx.performanceGoal.update({
+        where: { id },
+        data: {
+          ...data,
+          ...(data.weightage !== undefined
+            ? { weightage: new Prisma.Decimal(data.weightage) }
+            : {}),
+          updatedBy: actor.userId,
+          rowVersion: { increment: 1 }
+        },
+        include: goalInclude
+      });
+      await auditService.record(tx, {
+        tenantId: existing.tenantId,
+        actorUserId: actor.userId,
+        action: "performance.goal_updated",
+        entityType: "performance_goal",
+        entityId: id,
+        result: "SUCCESS",
+        oldValues: jsonValue(existing),
+        newValues: jsonValue(goal),
+        context
+      });
+      return serialize(goal);
+    });
+  }
+
+  async deleteGoal(id: string, actor: Actor, context: RequestContext) {
+    const existing = await findGoal(id, actor);
+    await assertNoActivePerformanceEvidence("goal", id);
+    await prisma.$transaction(async (tx) => {
+      const now = new Date();
+      await tx.performanceKpi.updateMany({
+        where: { deletedAt: null, kra: { goalId: id } },
+        data: { deletedAt: now }
+      });
+      await tx.performanceKra.updateMany({
+        where: { goalId: id, deletedAt: null },
+        data: { deletedAt: now }
+      });
+      await tx.performanceGoal.update({
+        where: { id },
+        data: {
+          deletedAt: now,
+          deletedBy: actor.userId,
+          updatedBy: actor.userId,
+          rowVersion: { increment: 1 }
+        }
+      });
+      await auditService.record(tx, {
+        tenantId: existing.tenantId,
+        actorUserId: actor.userId,
+        action: "performance.goal_deleted",
+        entityType: "performance_goal",
+        entityId: id,
+        result: "SUCCESS",
+        oldValues: jsonValue(existing),
+        context
+      });
+    });
+  }
+
   async createKra(
     goalId: string,
     data: { title: string; description?: string | null; weightage: number },
@@ -230,6 +331,7 @@ export class PerformanceService {
     context: RequestContext
   ) {
     const goal = await findGoal(goalId, actor);
+    await assertWeightageLimit(prisma, "kra", goalId, data.weightage);
     return prisma.$transaction(async (tx) => {
       const kra = await tx.performanceKra.create({
         data: {
@@ -255,6 +357,74 @@ export class PerformanceService {
     });
   }
 
+  async updateKra(
+    id: string,
+    data: Partial<{ title: string; description: string | null; weightage: number }>,
+    actor: Actor,
+    context: RequestContext
+  ) {
+    const existing = await findKra(id, actor);
+    if (data.weightage !== undefined) {
+      await assertWeightageLimit(
+        prisma,
+        "kra",
+        existing.goalId,
+        data.weightage,
+        id
+      );
+    }
+    return prisma.$transaction(async (tx) => {
+      const kra = await tx.performanceKra.update({
+        where: { id },
+        data: {
+          ...data,
+          ...(data.weightage !== undefined
+            ? { weightage: new Prisma.Decimal(data.weightage) }
+            : {})
+        },
+        include: { kpis: { where: { deletedAt: null } } }
+      });
+      await auditService.record(tx, {
+        tenantId: existing.tenantId,
+        actorUserId: actor.userId,
+        action: "performance.kra_updated",
+        entityType: "performance_kra",
+        entityId: id,
+        result: "SUCCESS",
+        oldValues: jsonValue(existing),
+        newValues: jsonValue(kra),
+        context
+      });
+      return serialize(kra);
+    });
+  }
+
+  async deleteKra(id: string, actor: Actor, context: RequestContext) {
+    const existing = await findKra(id, actor);
+    await assertNoActivePerformanceEvidence("kra", id);
+    await prisma.$transaction(async (tx) => {
+      const now = new Date();
+      await tx.performanceKpi.updateMany({
+        where: { kraId: id, deletedAt: null },
+        data: { deletedAt: now }
+      });
+      await tx.performanceKra.update({
+        where: { id },
+        data: { deletedAt: now }
+      });
+      await auditService.record(tx, {
+        tenantId: existing.tenantId,
+        actorUserId: actor.userId,
+        action: "performance.kra_deleted",
+        entityType: "performance_kra",
+        entityId: id,
+        result: "SUCCESS",
+        oldValues: jsonValue(existing),
+        context
+      });
+    });
+  }
+
   async createKpi(
     kraId: string,
     data: {
@@ -269,6 +439,7 @@ export class PerformanceService {
     context: RequestContext
   ) {
     const kra = await findKra(kraId, actor);
+    await assertWeightageLimit(prisma, "kpi", kraId, data.weightage);
     return prisma.$transaction(async (tx) => {
       const kpi = await tx.performanceKpi.create({
         data: {
@@ -293,6 +464,85 @@ export class PerformanceService {
         context
       });
       return serialize(kpi);
+    });
+  }
+
+  async updateKpi(
+    id: string,
+    data: Partial<{
+      description: string;
+      targetValue: number | null;
+      actualValue: number | null;
+      achievementPercentage: number | null;
+      score: number | null;
+      weightage: number;
+    }>,
+    actor: Actor,
+    context: RequestContext
+  ) {
+    const existing = await findKpi(id, actor);
+    if (data.weightage !== undefined) {
+      await assertWeightageLimit(
+        prisma,
+        "kpi",
+        existing.kraId,
+        data.weightage,
+        id
+      );
+    }
+    return prisma.$transaction(async (tx) => {
+      const kpi = await tx.performanceKpi.update({
+        where: { id },
+        data: {
+          ...(data.description !== undefined ? { description: data.description } : {}),
+          ...(data.targetValue !== undefined
+            ? { targetValue: nullableDecimal(data.targetValue) }
+            : {}),
+          ...(data.actualValue !== undefined
+            ? { actualValue: nullableDecimal(data.actualValue) }
+            : {}),
+          ...(data.achievementPercentage !== undefined
+            ? { achievementPercentage: nullableDecimal(data.achievementPercentage) }
+            : {}),
+          ...(data.score !== undefined ? { score: nullableDecimal(data.score) } : {}),
+          ...(data.weightage !== undefined
+            ? { weightage: new Prisma.Decimal(data.weightage) }
+            : {})
+        }
+      });
+      await auditService.record(tx, {
+        tenantId: existing.tenantId,
+        actorUserId: actor.userId,
+        action: "performance.kpi_updated",
+        entityType: "performance_kpi",
+        entityId: id,
+        result: "SUCCESS",
+        oldValues: jsonValue(existing),
+        newValues: jsonValue(kpi),
+        context
+      });
+      return serialize(kpi);
+    });
+  }
+
+  async deleteKpi(id: string, actor: Actor, context: RequestContext) {
+    const existing = await findKpi(id, actor);
+    await assertNoActivePerformanceEvidence("kpi", id);
+    await prisma.$transaction(async (tx) => {
+      await tx.performanceKpi.update({
+        where: { id },
+        data: { deletedAt: new Date() }
+      });
+      await auditService.record(tx, {
+        tenantId: existing.tenantId,
+        actorUserId: actor.userId,
+        action: "performance.kpi_deleted",
+        entityType: "performance_kpi",
+        entityId: id,
+        result: "SUCCESS",
+        oldValues: jsonValue(existing),
+        context
+      });
     });
   }
 
@@ -384,6 +634,7 @@ export class PerformanceService {
     await assertOrganizationInScope(prisma, actor, tenantId, data.organizationId);
     await ensureMember(prisma, tenantId, data.employeeUserId);
     await ensureMember(prisma, tenantId, data.managerUserId);
+    await assertReviewDoesNotExist(prisma, tenantId, data.cycleId, data.employeeUserId);
     return prisma.$transaction(async (tx) => {
       const review = await tx.performanceReview.create({
         data: {
@@ -408,6 +659,80 @@ export class PerformanceService {
         context
       });
       return serialize(review);
+    });
+  }
+
+  async bulkCreateReviews(
+    data: {
+      tenantId: string;
+      cycleId: string;
+      employeeUserIds: string[];
+      managerUserId?: string | null;
+      organizationId?: string | null;
+    },
+    actor: Actor,
+    context: RequestContext
+  ) {
+    const tenantId = resolveRequiredTenant(actor, data.tenantId);
+    const employeeUserIds = [...new Set(data.employeeUserIds)];
+    await ensureCycle(prisma, tenantId, data.cycleId);
+    await ensureTenantAndOrganization(prisma, tenantId, data.organizationId);
+    await assertOrganizationInScope(prisma, actor, tenantId, data.organizationId);
+    await Promise.all([
+      ...employeeUserIds.map((userId) => ensureMember(prisma, tenantId, userId)),
+      ensureMember(prisma, tenantId, data.managerUserId)
+    ]);
+    const duplicate = await prisma.performanceReview.findFirst({
+      where: {
+        tenantId,
+        cycleId: data.cycleId,
+        employeeUserId: { in: employeeUserIds },
+        deletedAt: null
+      },
+      include: {
+        employee: { select: { firstName: true, lastName: true, email: true } }
+      }
+    });
+    if (duplicate) {
+      throw new ConflictError(
+        "REVIEW_EXISTS",
+        `A review already exists for ${duplicate.employee.firstName} ${duplicate.employee.lastName} (${duplicate.employee.email}) in this cycle.`
+      );
+    }
+
+    return prisma.$transaction(async (tx) => {
+      await tx.performanceReview.createMany({
+        data: employeeUserIds.map((employeeUserId) => ({
+          tenantId,
+          cycleId: data.cycleId,
+          employeeUserId,
+          managerUserId: data.managerUserId ?? null,
+          organizationId: data.organizationId ?? null,
+          createdBy: actor.userId,
+          updatedBy: actor.userId
+        }))
+      });
+      const reviews = await tx.performanceReview.findMany({
+        where: {
+          tenantId,
+          cycleId: data.cycleId,
+          employeeUserId: { in: employeeUserIds },
+          deletedAt: null
+        },
+        include: reviewInclude,
+        orderBy: [{ createdAt: "desc" }]
+      });
+      await auditService.record(tx, {
+        tenantId,
+        actorUserId: actor.userId,
+        action: "performance.reviews_bulk_created",
+        entityType: "performance_review",
+        entityId: data.cycleId,
+        result: "SUCCESS",
+        metadata: { count: reviews.length },
+        context
+      });
+      return serialize(reviews);
     });
   }
 
@@ -768,6 +1093,84 @@ async function ensureKpi(db: DatabaseClient, tenantId: string, kpiId: string) {
     where: { id: kpiId, tenantId, deletedAt: null }
   });
   if (!kpi) throw new NotFoundError("KPI");
+}
+
+async function assertReviewDoesNotExist(
+  db: DatabaseClient,
+  tenantId: string,
+  cycleId: string,
+  employeeUserId: string
+) {
+  const existing = await db.performanceReview.findFirst({
+    where: { tenantId, cycleId, employeeUserId, deletedAt: null }
+  });
+  if (existing) {
+    throw new ConflictError(
+      "REVIEW_EXISTS",
+      "A review already exists for this employee and cycle."
+    );
+  }
+}
+
+async function assertWeightageLimit(
+  db: DatabaseClient,
+  kind: "goal" | "kra" | "kpi",
+  parentId: string,
+  requestedWeightage: number,
+  excludedId?: string
+) {
+  const excluded = excludedId ? { id: { not: excludedId } } : {};
+  const aggregate =
+    kind === "goal"
+      ? await db.performanceGoal.aggregate({
+          where: { cycleId: parentId, deletedAt: null, ...excluded },
+          _sum: { weightage: true }
+        })
+      : kind === "kra"
+        ? await db.performanceKra.aggregate({
+            where: { goalId: parentId, deletedAt: null, ...excluded },
+            _sum: { weightage: true }
+          })
+        : await db.performanceKpi.aggregate({
+            where: { kraId: parentId, deletedAt: null, ...excluded },
+            _sum: { weightage: true }
+          });
+  const existingTotal = Number(aggregate._sum.weightage ?? 0);
+  if (existingTotal + requestedWeightage > 100) {
+    throw new ValidationError([
+      {
+        field: "weightage",
+        code: "custom",
+        message: `Total ${kind.toUpperCase()} weightage cannot exceed 100%.`
+      }
+    ]);
+  }
+}
+
+async function assertNoActivePerformanceEvidence(
+  kind: "goal" | "kra" | "kpi",
+  id: string
+) {
+  const where =
+    kind === "goal"
+      ? {
+          deletedAt: null,
+          kpi: { is: { kra: { goalId: id, deletedAt: null } } }
+        }
+      : kind === "kra"
+        ? {
+            deletedAt: null,
+            kpi: { is: { kraId: id, deletedAt: null } }
+          }
+        : { deletedAt: null, kpiId: id };
+
+  const evidence = await prisma.performanceEvidence.count({ where });
+  if (evidence > 0) {
+    throw new ConflictError(
+      "PERFORMANCE_EVIDENCE_EXISTS",
+      "Archive related performance evidence before deleting this item."
+    );
+  }
 }
 
 function assertSelfOrReviewer(actor: Actor, employeeUserId: string): void {

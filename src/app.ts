@@ -3,14 +3,14 @@ import cors from "cors";
 import express, { type Application } from "express";
 import helmet from "helmet";
 import { pinoHttp } from "pino-http";
-import { env } from "./config/env.js";
-import { logger } from "./config/logger.js";
-import { authRouter } from "./modules/auth/auth.routes.js";
-import { adminRouter } from "./modules/admin/admin.routes.js";
-import { performanceRouter } from "./modules/performance/performance.routes.js";
-import { AppError } from "./shared/errors/app-error.js";
-import { errorHandler } from "./shared/middleware/error.middleware.js";
-import { requestContextMiddleware } from "./shared/middleware/request-context.middleware.js";
+import { env } from "./core/config.js";
+import { logger } from "./core/logger.js";
+import { authRouter } from "./modules/auth/index.js";
+import { adminRouter } from "./modules/admin/index.js";
+import { performanceRouter } from "./modules/performance/index.js";
+import { AppError } from "./core/errors.js";
+import { errorHandler } from "./core/error.middleware.js";
+import { requestContextMiddleware } from "./core/request-context.middleware.js";
 
 export function createApp(): Application {
   const app = express();

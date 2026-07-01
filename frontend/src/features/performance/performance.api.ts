@@ -1,4 +1,4 @@
-import { apiRequest } from "@/lib/api-client";
+import { apiRequest, requireUuid } from "@/shared/api/http";
 import type {
   PerformanceDashboard,
   PerformanceGoal,
@@ -66,6 +66,22 @@ export const performanceApi = {
       body: input
     });
   },
+  updateGoal(id: string, input: {
+    organizationId?: string | null;
+    ownerUserId?: string | null;
+    name?: string;
+    description?: string | null;
+    weightage?: number;
+  }) {
+    return apiRequest<{ data: PerformanceGoal }>(`/performance/goals/${id}`, {
+      method: "PATCH",
+      body: input
+    });
+  },
+  deleteGoal(id: string) {
+    const goalId = requireUuid(id, "goal");
+    return apiRequest<void>(`/performance/goals/${goalId}`, { method: "DELETE" });
+  },
   createKra(goalId: string, input: {
     title: string;
     description?: string | null;
@@ -76,6 +92,20 @@ export const performanceApi = {
       { method: "POST", body: input }
     );
   },
+  updateKra(id: string, input: {
+    title?: string;
+    description?: string | null;
+    weightage?: number;
+  }) {
+    return apiRequest<{ data: PerformanceKra }>(`/performance/kras/${id}`, {
+      method: "PATCH",
+      body: input
+    });
+  },
+  deleteKra(id: string) {
+    const kraId = requireUuid(id, "KRA");
+    return apiRequest<void>(`/performance/kras/${kraId}`, { method: "DELETE" });
+  },
   createKpi(kraId: string, input: {
     description: string;
     targetValue?: number | null;
@@ -85,6 +115,23 @@ export const performanceApi = {
       `/performance/kras/${kraId}/kpis`,
       { method: "POST", body: input }
     );
+  },
+  updateKpi(id: string, input: {
+    description?: string;
+    targetValue?: number | null;
+    actualValue?: number | null;
+    achievementPercentage?: number | null;
+    score?: number | null;
+    weightage?: number;
+  }) {
+    return apiRequest<{ data: PerformanceKpi }>(`/performance/kpis/${id}`, {
+      method: "PATCH",
+      body: input
+    });
+  },
+  deleteKpi(id: string) {
+    const kpiId = requireUuid(id, "KPI");
+    return apiRequest<void>(`/performance/kpis/${kpiId}`, { method: "DELETE" });
   },
   updateKpiProgress(id: string, input: {
     actualValue?: number | null;
@@ -109,6 +156,18 @@ export const performanceApi = {
     organizationId?: string | null;
   }) {
     return apiRequest<{ data: PerformanceReview }>("/performance/reviews", {
+      method: "POST",
+      body: input
+    });
+  },
+  bulkCreateReviews(input: {
+    tenantId: string;
+    cycleId: string;
+    employeeUserIds: string[];
+    managerUserId?: string | null;
+    organizationId?: string | null;
+  }) {
+    return apiRequest<{ data: PerformanceReview[] }>("/performance/reviews/bulk", {
       method: "POST",
       body: input
     });

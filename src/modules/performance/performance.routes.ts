@@ -3,10 +3,11 @@ import {
   authenticate,
   establishTenantAccess,
   requireAnyPermission
-} from "../auth/auth.middleware.js";
-import { validate } from "../../shared/middleware/validate.middleware.js";
+} from "../../core/auth.js";
+import { validate } from "../../core/validate.middleware.js";
 import { performanceController } from "./performance.controller.js";
 import {
+  bulkCreateReviewsSchema,
   createCycleSchema,
   createEvidenceSchema,
   createGoalSchema,
@@ -20,8 +21,11 @@ import {
   performanceListQuerySchema,
   selfAssessmentSchema,
   updateCycleSchema,
-  updateKpiProgressSchema
-} from "./performance.validation.js";
+  updateGoalSchema,
+  updateKpiSchema,
+  updateKpiProgressSchema,
+  updateKraSchema
+} from "./performance.schema.js";
 
 const readPerformance = [
   "tenant.performance.read",
@@ -82,17 +86,53 @@ performanceRouter.post(
   validate({ body: createGoalSchema }),
   performanceController.createGoal.bind(performanceController)
 );
+performanceRouter.patch(
+  "/goals/:id",
+  requireAnyPermission(...managePerformance),
+  validate({ params: idParamsSchema, body: updateGoalSchema }),
+  performanceController.updateGoal.bind(performanceController)
+);
+performanceRouter.delete(
+  "/goals/:id",
+  requireAnyPermission(...managePerformance),
+  validate({ params: idParamsSchema }),
+  performanceController.deleteGoal.bind(performanceController)
+);
 performanceRouter.post(
   "/goals/:goalId/kras",
   requireAnyPermission(...managePerformance),
   validate({ params: goalParamsSchema, body: createKraSchema }),
   performanceController.createKra.bind(performanceController)
 );
+performanceRouter.patch(
+  "/kras/:id",
+  requireAnyPermission(...managePerformance),
+  validate({ params: idParamsSchema, body: updateKraSchema }),
+  performanceController.updateKra.bind(performanceController)
+);
+performanceRouter.delete(
+  "/kras/:id",
+  requireAnyPermission(...managePerformance),
+  validate({ params: idParamsSchema }),
+  performanceController.deleteKra.bind(performanceController)
+);
 performanceRouter.post(
   "/kras/:kraId/kpis",
   requireAnyPermission(...managePerformance),
   validate({ params: kraParamsSchema, body: createKpiSchema }),
   performanceController.createKpi.bind(performanceController)
+);
+performanceRouter.patch(
+  "/kpis/:id",
+  requireAnyPermission(...managePerformance),
+  validate({ params: idParamsSchema, body: updateKpiSchema }),
+  performanceController.updateKpi.bind(performanceController)
+);
+performanceRouter.delete(
+  "/kpis/:id",
+  requireAnyPermission(...managePerformance),
+  validate({ params: idParamsSchema }),
+  performanceController.deleteKpi.bind(performanceController)
 );
 performanceRouter.patch(
   "/kpis/:id/progress",
@@ -116,6 +156,12 @@ performanceRouter.post(
   requireAnyPermission(...reviewPerformance),
   validate({ body: createReviewSchema }),
   performanceController.createReview.bind(performanceController)
+);
+performanceRouter.post(
+  "/reviews/bulk",
+  requireAnyPermission(...reviewPerformance),
+  validate({ body: bulkCreateReviewsSchema }),
+  performanceController.bulkCreateReviews.bind(performanceController)
 );
 performanceRouter.patch(
   "/reviews/:id/self-assessment",

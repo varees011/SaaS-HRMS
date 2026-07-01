@@ -1,6 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
-import { env } from "../../config/env.js";
-import { AuthenticationError } from "../../shared/errors/app-error.js";
+import { env } from "../../core/config.js";
+import { AuthenticationError } from "../../core/errors.js";
 import type { AccessTokenClaims, AuthTokens } from "./auth.types.js";
 
 const secret = new TextEncoder().encode(env.JWT_ACCESS_SECRET);

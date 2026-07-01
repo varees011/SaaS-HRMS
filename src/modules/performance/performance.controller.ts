@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { AuthenticationError } from "../../shared/errors/app-error.js";
+import { AuthenticationError } from "../../core/errors.js";
 import { performanceService } from "./performance.service.js";
 
 export class PerformanceController {
@@ -46,6 +46,26 @@ export class PerformanceController {
     });
   }
 
+  async updateGoal(req: Request, res: Response) {
+    res.json({
+      data: await performanceService.updateGoal(
+        String(req.params.id),
+        req.body,
+        actor(req),
+        req.context
+      )
+    });
+  }
+
+  async deleteGoal(req: Request, res: Response) {
+    await performanceService.deleteGoal(
+      String(req.params.id),
+      actor(req),
+      req.context
+    );
+    res.status(204).send();
+  }
+
   async createKra(req: Request, res: Response) {
     res.status(201).json({
       data: await performanceService.createKra(
@@ -57,6 +77,26 @@ export class PerformanceController {
     });
   }
 
+  async updateKra(req: Request, res: Response) {
+    res.json({
+      data: await performanceService.updateKra(
+        String(req.params.id),
+        req.body,
+        actor(req),
+        req.context
+      )
+    });
+  }
+
+  async deleteKra(req: Request, res: Response) {
+    await performanceService.deleteKra(
+      String(req.params.id),
+      actor(req),
+      req.context
+    );
+    res.status(204).send();
+  }
+
   async createKpi(req: Request, res: Response) {
     res.status(201).json({
       data: await performanceService.createKpi(
@@ -66,6 +106,26 @@ export class PerformanceController {
         req.context
       )
     });
+  }
+
+  async updateKpi(req: Request, res: Response) {
+    res.json({
+      data: await performanceService.updateKpi(
+        String(req.params.id),
+        req.body,
+        actor(req),
+        req.context
+      )
+    });
+  }
+
+  async deleteKpi(req: Request, res: Response) {
+    await performanceService.deleteKpi(
+      String(req.params.id),
+      actor(req),
+      req.context
+    );
+    res.status(204).send();
   }
 
   async updateKpiProgress(req: Request, res: Response) {
@@ -86,6 +146,16 @@ export class PerformanceController {
   async createReview(req: Request, res: Response) {
     res.status(201).json({
       data: await performanceService.createReview(
+        req.body,
+        actor(req),
+        req.context
+      )
+    });
+  }
+
+  async bulkCreateReviews(req: Request, res: Response) {
+    res.status(201).json({
+      data: await performanceService.bulkCreateReviews(
         req.body,
         actor(req),
         req.context

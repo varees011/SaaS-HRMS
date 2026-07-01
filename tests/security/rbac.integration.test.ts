@@ -13,13 +13,13 @@ const seededPassword =
 
 let server: Server;
 let baseUrl: string;
-let prisma: typeof import("../../src/lib/prisma.js").prisma;
+let prisma: typeof import("../../src/core/db.js").prisma;
 let cryptoService: typeof import("../../src/modules/auth/crypto.service.js").cryptoService;
 let tokenService: typeof import("../../src/modules/auth/token.service.js").tokenService;
 
 beforeAll(async () => {
   const appModule = await import("../../src/app.js");
-  const prismaModule = await import("../../src/lib/prisma.js");
+  const prismaModule = await import("../../src/core/db.js");
   const cryptoModule = await import("../../src/modules/auth/crypto.service.js");
   const tokenModule = await import("../../src/modules/auth/token.service.js");
   prisma = prismaModule.prisma;
