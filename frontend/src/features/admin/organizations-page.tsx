@@ -34,7 +34,9 @@ import { ApiError } from "@/shared/api/http";
 
 export function OrganizationsPage() {
   const user = useAuthStore((state) => state.user);
-  const [tenantId, setTenantId] = useState("");
+  const isPlatformAdmin = user?.isSuperAdmin ?? false;
+  const fixedTenantId = user?.tenantId ?? user?.memberships?.[0]?.tenantId ?? "";
+  const [tenantId, setTenantId] = useState(isPlatformAdmin ? "" : fixedTenantId);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string>();
   const canCreateOrganization = hasAnyPermission(user, [
@@ -48,16 +50,21 @@ export function OrganizationsPage() {
   const queryClient = useQueryClient();
   const tenants = useQuery({
     queryKey: ["admin", "tenants"],
-    queryFn: () => adminApi.listTenants()
+    queryFn: () => adminApi.listTenants(),
+    enabled: isPlatformAdmin
   });
   useEffect(() => {
+    if (!isPlatformAdmin) {
+      if (fixedTenantId && tenantId !== fixedTenantId) setTenantId(fixedTenantId);
+      return;
+    }
     if (!tenantId && tenants.data?.data[0]) {
       const customerTenant =
         tenants.data.data.find((tenant) => tenant.code !== "platform") ??
         tenants.data.data[0];
       setTenantId(customerTenant.id);
     }
-  }, [tenantId, tenants.data]);
+  }, [fixedTenantId, isPlatformAdmin, tenantId, tenants.data]);
   const organizations = useQuery({
     queryKey: ["admin", "organizations", tenantId],
     queryFn: () => adminApi.listOrganizations({ tenantId }),
@@ -106,6 +113,12 @@ export function OrganizationsPage() {
     });
   }
 
+  const activeTenantLabel =
+    user?.memberships?.find((membership) => membership.tenantId === tenantId)
+      ?.tenant.name ??
+    tenants.data?.data.find((tenant) => tenant.id === tenantId)?.name ??
+    "Current organization";
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -126,15 +139,25 @@ export function OrganizationsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Organization units</CardTitle>
-          <CardDescription>Select a tenant to manage its hierarchy.</CardDescription>
-          <Select value={tenantId} onChange={(event) => setTenantId(event.target.value)}>
-            <option value="">Select tenant</option>
-            {tenants.data?.data.map((tenant) => (
-              <option key={tenant.id} value={tenant.id}>
-                {tenant.name} ({tenant.code})
-              </option>
-            ))}
-          </Select>
+          <CardDescription>
+            {isPlatformAdmin
+              ? "Select a tenant to manage its hierarchy."
+              : `Managing hierarchy for ${activeTenantLabel}.`}
+          </CardDescription>
+          {isPlatformAdmin ? (
+            <Select value={tenantId} onChange={(event) => setTenantId(event.target.value)}>
+              <option value="">Select tenant</option>
+              {tenants.data?.data.map((tenant) => (
+                <option key={tenant.id} value={tenant.id}>
+                  {tenant.name} ({tenant.code})
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <div className="rounded-md border bg-secondary/40 px-3 py-2 text-sm font-medium">
+              {activeTenantLabel}
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           {organizations.isLoading ? (

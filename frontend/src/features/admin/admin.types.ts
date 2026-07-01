@@ -76,6 +76,13 @@ export interface AdminUser {
   lastLoginAt: string | null;
   createdAt: string;
   tenant: { code: string; name: string };
+  reportingManagerUserId: string | null;
+  reportingManager: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+  } | null;
   roleAssignments: Array<{
     id: string;
     organizationId: string | null;

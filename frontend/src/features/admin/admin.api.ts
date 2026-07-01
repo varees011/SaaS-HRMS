@@ -16,12 +16,16 @@ interface ListFilters {
   status?: string;
   organizationType?: string;
   cursor?: string;
+  limit?: number;
 }
 
 function query(filters: ListFilters = {}) {
-  const params = new URLSearchParams({ limit: "100", sort: "name" });
+  const params = new URLSearchParams({
+    limit: String(filters.limit ?? 100),
+    sort: "name"
+  });
   for (const [key, value] of Object.entries(filters)) {
-    if (value) params.set(key, value);
+    if (value) params.set(key, String(value));
   }
   return params.toString();
 }
@@ -132,6 +136,7 @@ export const adminApi = {
     roleId: string;
     departmentId?: string | null;
     organizationId?: string | null;
+    managerUserId?: string | null;
   }) {
     return apiRequest<{ data: AdminUser }>("/admin/users", {
       method: "POST",

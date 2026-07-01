@@ -1,6 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useQuery } from "@tanstack/react-query";
 import { LoaderCircle, ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { z } from "zod";
@@ -14,6 +15,7 @@ import {
   CardTitle
 } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
+import { Select } from "@/shared/ui/select";
 import { FormField } from "@/shared/forms/form-field";
 import { PasswordInput } from "@/shared/forms/password-input";
 import { ApiError } from "@/shared/api/http";
@@ -32,6 +34,10 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const lastTenant = localStorage.getItem("hrms_last_tenant") ?? "";
+  const tenants = useQuery({
+    queryKey: ["auth", "tenants"],
+    queryFn: () => authApi.tenants()
+  });
   const form = useForm<FormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
@@ -43,6 +49,16 @@ export function LoginPage() {
     }
   });
   const mode = form.watch("mode");
+
+  useEffect(() => {
+    if (mode !== "organization" || !tenants.data?.length) return;
+    const currentTenant = form.getValues("tenant");
+    const remembered = tenants.data.find((tenant) => tenant.code === currentTenant);
+    if (remembered) return;
+    const preferred =
+      tenants.data.find((tenant) => tenant.code === lastTenant) ?? tenants.data[0];
+    if (preferred) form.setValue("tenant", preferred.code, { shouldValidate: true });
+  }, [form, lastTenant, mode, tenants.data]);
 
   async function submit(values: FormValues) {
     setServerError(undefined);
@@ -74,19 +90,19 @@ export function LoginPage() {
   }
 
   return (
-    <Card className="border-primary/10 shadow-[0_28px_70px_rgba(18,32,23,0.12)]">
+    <Card className="border-primary/10 shadow-[0_28px_70px_rgba(14,22,63,0.14)]">
       <CardHeader>
-        <p className="utility-label">Access checkpoint</p>
-        <CardTitle className="text-3xl">Sign in to the ledger</CardTitle>
+        <span className="callout-label w-fit">Use case study</span>
+        <CardTitle className="pt-3 text-3xl">Sign in to VentureSoft HRMS</CardTitle>
         <CardDescription>
-          Choose platform access or enter through your organization workspace.
+          Enter your platform account or continue inside an organization workspace.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form className="space-y-5" onSubmit={form.handleSubmit(submit)}>
           {serverError ? <Alert variant="destructive">{serverError}</Alert> : null}
           <input type="hidden" {...form.register("mode")} />
-          <div className="grid grid-cols-2 gap-2 rounded-md border border-primary/10 bg-secondary/40 p-1">
+          <div className="grid grid-cols-2 gap-2 rounded-md border border-primary/10 bg-slate-100 p-1">
             <Button
               type="button"
               variant={mode === "organization" ? "default" : "ghost"}
@@ -115,12 +131,21 @@ export function LoginPage() {
               label="Organization"
               error={form.formState.errors.tenant?.message}
             >
-              <Input
+              <Select
                 id="tenant"
                 autoComplete="organization"
-                placeholder="Organization name or code"
                 {...form.register("tenant")}
-              />
+                disabled={tenants.isLoading || !tenants.data?.length}
+              >
+                <option value="">
+                  {tenants.isLoading ? "Loading organizations" : "Select organization"}
+                </option>
+                {tenants.data?.map((tenant) => (
+                  <option key={tenant.id} value={tenant.code}>
+                    {tenant.name} ({tenant.code})
+                  </option>
+                ))}
+              </Select>
             </FormField>
           ) : null}
           <FormField
@@ -184,7 +209,7 @@ export function LoginPage() {
           </Button>
           <div className="text-center text-sm">
             <Link className="text-primary hover:underline" to="/forgot-password">
-              Reset access
+              Forgot password?
             </Link>
           </div>
         </form>

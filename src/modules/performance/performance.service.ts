@@ -21,6 +21,7 @@ interface Actor {
   tenantId: string | null;
   userId: string;
   isPlatformAdmin: boolean;
+  permissions: string[];
   assignments: AuthorizationAssignment[];
 }
 
@@ -593,7 +594,8 @@ export class PerformanceService {
 
   async listReviews(input: ListInput, actor: Actor) {
     const tenantId = resolveTenant(actor, input.tenantId);
-    if (tenantId && input.organizationId) {
+    const canReadScopedReviews = canReadTeamOrTenantPerformance(actor);
+    if (tenantId && input.organizationId && canReadScopedReviews) {
       await assertOrganizationInScope(prisma, actor, tenantId, input.organizationId);
     }
     const scope = await resolveOrganizationScope(prisma, actor, tenantId);
@@ -601,7 +603,7 @@ export class PerformanceService {
       where: {
         deletedAt: null,
         ...(tenantId ? { tenantId } : {}),
-        ...(input.organizationId
+        ...(input.organizationId && canReadScopedReviews
           ? { organizationId: input.organizationId }
           : reviewScopeWhere(scope, actor)),
         ...(input.cycleId ? { cycleId: input.cycleId } : {}),
@@ -1255,6 +1257,10 @@ function reviewScopeWhere(
   scope: Awaited<ReturnType<typeof resolveOrganizationScope>>,
   actor: Actor
 ): Prisma.PerformanceReviewWhereInput {
+  if (!canReadTeamOrTenantPerformance(actor)) {
+    return { employeeUserId: actor.userId };
+  }
+
   if (scope.tenantWide) return {};
   return {
     OR: [
@@ -1263,6 +1269,15 @@ function reviewScopeWhere(
       { managerUserId: actor.userId }
     ]
   };
+}
+
+function canReadTeamOrTenantPerformance(actor: Actor): boolean {
+  return (
+    actor.isPlatformAdmin ||
+    actor.permissions.includes("tenant.performance.read") ||
+    actor.permissions.includes("tenant.performance.manage") ||
+    actor.permissions.includes("team.performance.review")
+  );
 }
 
 export const performanceService = new PerformanceService();

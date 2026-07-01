@@ -21,6 +21,10 @@ import { validate } from "../../core/validate.middleware.js";
 
 export const authRouter: ExpressRouter = Router();
 
+authRouter.get(
+  "/tenants",
+  authController.tenants.bind(authController)
+);
 authRouter.post(
   "/login",
   authRateLimit,

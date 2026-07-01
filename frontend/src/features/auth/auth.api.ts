@@ -3,6 +3,7 @@ import type {
   ApiEnvelope,
   AuthTokens,
   CurrentUser,
+  LoginTenant,
   MfaSetup,
   SessionPage
 } from "./auth.types";
@@ -15,6 +16,14 @@ export interface LoginInput {
 }
 
 export const authApi = {
+  async tenants() {
+    const response =
+      await apiRequest<ApiEnvelope<LoginTenant[]>>("/auth/tenants", {
+        authenticate: false
+      });
+    return response.data;
+  },
+
   async login(input: LoginInput) {
     const response = await apiRequest<ApiEnvelope<AuthTokens>>("/auth/login", {
       method: "POST",

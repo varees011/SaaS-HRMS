@@ -6,6 +6,10 @@ import { authService } from "./auth.service.js";
 const REFRESH_COOKIE = "hrms_refresh_token";
 
 export class AuthController {
+  async tenants(_req: Request, res: Response): Promise<void> {
+    res.status(200).json({ data: await authService.listLoginTenants() });
+  }
+
   async login(req: Request, res: Response): Promise<void> {
     const tokens = await authService.login(
       req.body,

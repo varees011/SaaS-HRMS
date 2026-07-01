@@ -23,7 +23,7 @@ export const idParamsSchema = z.object({ id: uuid });
 
 export const adminListQuerySchema = z.object({
   cursor: uuid.optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(25),
+  limit: z.coerce.number().int().min(1).max(1000).default(25),
   tenantId: uuid.optional(),
   departmentId: uuid.optional(),
   search: z.string().trim().max(200).optional(),
@@ -81,7 +81,8 @@ export const createUserSchema = z.object({
   status: z.enum(["INVITED", "ACTIVE", "LOCKED", "DISABLED"]).default("ACTIVE"),
   roleId: uuid,
   departmentId: uuid.optional(),
-  organizationId: uuid.nullable().optional()
+  organizationId: uuid.nullable().optional(),
+  managerUserId: uuid.nullable().optional()
 });
 
 export const updateUserSchema = z
@@ -94,7 +95,8 @@ export const updateUserSchema = z
     status: z.enum(["INVITED", "ACTIVE", "LOCKED", "DISABLED"]).optional(),
     roleId: uuid.optional(),
     departmentId: uuid.optional(),
-    organizationId: uuid.nullable().optional()
+    organizationId: uuid.nullable().optional(),
+    managerUserId: uuid.nullable().optional()
   })
   .refine((value) => Object.keys(value).length > 0, "No changes supplied.");
 

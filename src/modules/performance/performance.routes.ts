@@ -30,9 +30,10 @@ import {
 const readPerformance = [
   "tenant.performance.read",
   "tenant.performance.manage",
-  "team.performance.review",
-  "self.performance.read"
+  "team.performance.review"
 ] as const;
+
+const readOwnPerformance = [...readPerformance, "self.performance.read"] as const;
 
 const managePerformance = [
   "tenant.performance.manage",
@@ -147,7 +148,7 @@ performanceRouter.patch(
 
 performanceRouter.get(
   "/reviews",
-  requireAnyPermission(...readPerformance),
+  requireAnyPermission(...readOwnPerformance),
   validate({ query: performanceListQuerySchema }),
   performanceController.listReviews.bind(performanceController)
 );

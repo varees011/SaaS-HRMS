@@ -1,10 +1,4 @@
-import {
-  Building2,
-  ClipboardCheck,
-  Fingerprint,
-  ShieldCheck,
-  UsersRound
-} from "lucide-react";
+import { ClipboardCheck, Fingerprint, ShieldCheck, UsersRound } from "lucide-react";
 import { Outlet } from "react-router-dom";
 
 const trustSignals = [
@@ -21,26 +15,27 @@ const reviewRail = [
 
 export function AuthLayout() {
   return (
-    <main className="grid min-h-screen lg:grid-cols-[minmax(0,1fr)_minmax(26rem,32rem)]">
+    <main className="grid min-h-screen lg:grid-cols-[minmax(0,1fr)_minmax(26rem,31rem)]">
       <section className="ledger-surface hidden min-w-0 overflow-hidden p-10 text-primary lg:flex lg:flex-col">
-        <div className="flex items-center gap-3 text-lg font-semibold">
-          <span className="grid h-11 w-11 place-items-center rounded-md bg-primary text-primary-foreground">
-            <Building2 className="h-5 w-5" />
+        <div className="flex items-center justify-between gap-4">
+          <img
+            src="/venture-soft-logo.png"
+            alt="VentureSoft"
+            className="h-12 w-64 object-contain object-left"
+          />
+          <span className="rounded-full bg-primary px-3 py-1.5 text-xs font-bold text-white">
+            HRMS
           </span>
-          <div>
-            <p>VentureSoft HRMS</p>
-            <p className="utility-label">Performance command</p>
-          </div>
         </div>
         <div className="my-auto grid max-w-4xl grid-cols-[minmax(0,1fr)_14rem] gap-8">
           <div>
-            <p className="utility-label mb-5">Review cycles without drift</p>
-            <h1 className="text-4xl font-semibold leading-[1.04] text-primary xl:text-5xl">
-              Keep every goal, manager note, and approval on the same rail.
+            <span className="callout-label mb-6">HRMS dashboard</span>
+            <h1 className="text-4xl font-extrabold leading-[1.04] text-primary xl:text-5xl">
+              A sharper workspace for people, reviews, and approvals.
             </h1>
             <p className="mt-6 max-w-xl text-lg text-muted-foreground">
-              Secure tenant access for HR teams coordinating KRA/KPI scorecards,
-              review assignments, evidence, and final assessments.
+              Manage goals, candidates, managers, leave, and employee context
+              from one branded VentureSoft dashboard.
             </p>
           </div>
           <div className="review-rail space-y-5 pt-2">
@@ -61,9 +56,9 @@ export function AuthLayout() {
           {trustSignals.map(({ icon: Icon, label }) => (
             <div
               key={label}
-              className="flex items-center gap-2 rounded-md border border-primary/10 bg-card/70 px-3 py-2 text-muted-foreground"
+              className="flex items-center gap-2 rounded-md border border-primary/10 bg-white/80 px-3 py-2 text-muted-foreground"
             >
-              <Icon className="h-4 w-4 text-primary" />
+              <Icon className="h-4 w-4 text-destructive" />
               {label}
             </div>
           ))}
@@ -72,13 +67,11 @@ export function AuthLayout() {
       <section className="flex min-h-screen min-w-0 items-center justify-center p-6 sm:p-8">
         <div className="w-full max-w-md">
           <div className="mb-8 flex items-center gap-3 lg:hidden">
-            <span className="grid h-10 w-10 place-items-center rounded-md bg-primary text-primary-foreground">
-              <Building2 className="h-5 w-5" />
-            </span>
-            <div>
-              <span className="font-semibold text-primary">VentureSoft HRMS</span>
-              <p className="utility-label">Performance command</p>
-            </div>
+            <img
+              src="/venture-soft-logo.png"
+              alt="VentureSoft"
+              className="h-10 w-52 object-contain object-left"
+            />
           </div>
           <Outlet />
         </div>

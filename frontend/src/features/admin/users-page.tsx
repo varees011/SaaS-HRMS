@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LoaderCircle, Plus, Trash2, UserCog } from "lucide-react";
+import { LoaderCircle, Plus, Save, Trash2, UserCog } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { Alert } from "@/shared/ui/alert";
 import { Badge } from "@/shared/ui/badge";
@@ -29,6 +29,7 @@ import {
   TableRow
 } from "@/shared/ui/table";
 import { adminApi } from "@/features/admin/admin.api";
+import type { AdminUser } from "@/features/admin/admin.types";
 import { strongPassword } from "@/features/auth/auth.schema";
 import { useAuthStore } from "@/features/auth/auth.store";
 import { hasAnyPermission } from "@/features/auth/permissions";
@@ -36,9 +37,16 @@ import { ApiError } from "@/shared/api/http";
 
 export function UsersPage() {
   const currentUser = useAuthStore((state) => state.user)!;
-  const [tenantId, setTenantId] = useState("");
+  const isPlatformAdmin = currentUser.isSuperAdmin;
+  const fixedTenantId =
+    currentUser.tenantId ?? currentUser.memberships?.[0]?.tenantId ?? "";
+  const [tenantId, setTenantId] = useState(isPlatformAdmin ? "" : fixedTenantId);
   const [createDepartmentId, setCreateDepartmentId] = useState("");
-  const [rowDepartmentIds, setRowDepartmentIds] = useState<Record<string, string>>({});
+  const [createRoleId, setCreateRoleId] = useState("");
+  const [createManagerUserId, setCreateManagerUserId] = useState("");
+  const [rowDrafts, setRowDrafts] = useState<
+    Record<string, { departmentId: string; roleId: string; managerUserId: string }>
+  >({});
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string>();
   const canCreateUser = hasAnyPermission(currentUser, [
@@ -68,20 +76,36 @@ export function UsersPage() {
   const queryClient = useQueryClient();
   const tenants = useQuery({
     queryKey: ["admin", "tenants"],
-    queryFn: () => adminApi.listTenants()
+    queryFn: () => adminApi.listTenants(),
+    enabled: isPlatformAdmin
   });
   useEffect(() => {
+    if (!isPlatformAdmin) {
+      if (fixedTenantId && tenantId !== fixedTenantId) setTenantId(fixedTenantId);
+      return;
+    }
     if (!tenantId && tenants.data?.data[0]) {
       const customerTenant =
         tenants.data.data.find((tenant) => tenant.code !== "platform") ??
         tenants.data.data[0];
       setTenantId(customerTenant.id);
     }
-  }, [tenantId, tenants.data]);
+  }, [fixedTenantId, isPlatformAdmin, tenantId, tenants.data]);
   const users = useQuery({
     queryKey: ["admin", "users", tenantId],
     queryFn: () => adminApi.listUsers({ tenantId }),
     enabled: Boolean(tenantId)
+  });
+  const managers = useQuery({
+    queryKey: ["admin", "users", "managers", tenantId],
+    queryFn: () =>
+      adminApi.listUsers({
+        tenantId,
+        role: "manager",
+        status: "ACTIVE",
+        limit: 1000
+      }),
+    enabled: Boolean(tenantId) && canUpdateUser
   });
   const roles = useQuery({
     queryKey: ["admin", "roles", tenantId],
@@ -106,8 +130,17 @@ export function UsersPage() {
   const update = useMutation({
     mutationFn: ({ id, input }: { id: string; input: Record<string, unknown> }) =>
       adminApi.updateUser(id, input, tenantId),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["admin", "users", tenantId] }),
+    onSuccess: async (_data, variables) => {
+      setRowDrafts((current) => {
+        const next = { ...current };
+        delete next[variables.id];
+        return next;
+      });
+      await queryClient.invalidateQueries({ queryKey: ["admin", "users", tenantId] });
+      await queryClient.invalidateQueries({
+        queryKey: ["admin", "users", "managers", tenantId]
+      });
+    },
     onError: showError
   });
   const remove = useMutation({
@@ -154,31 +187,79 @@ export function UsersPage() {
       status: "ACTIVE",
       roleId: String(form.get("roleId")),
       departmentId: String(form.get("departmentId")),
-      organizationId: String(form.get("departmentId"))
+      organizationId: String(form.get("departmentId")),
+      ...(createManagerUserId ? { managerUserId: createManagerUserId } : {})
     });
   }
 
   const createRoleOptions =
     roles.data?.data.filter((role) => role.departmentId === createDepartmentId) ?? [];
+  const createRole = createRoleOptions.find((role) => role.id === createRoleId);
+  const canAssignCreateManager = Boolean(
+    createRole && !isManagerialRole(createRole)
+  );
+  const activeTenantLabel =
+    currentUser.memberships?.find((membership) => membership.tenantId === tenantId)
+      ?.tenant.name ??
+    tenants.data?.data.find((tenant) => tenant.id === tenantId)?.name ??
+    "Current organization";
 
-  function departmentForUser(user: {
-    id: string;
-    roleAssignments: Array<{
-      organizationId: string | null;
-      organization: { id: string; name: string } | null;
-      role: { departmentId: string | null; department: { id: string; name: string } | null };
-    }>;
-  }) {
+  function baseDraftForUser(user: AdminUser) {
     const assignment = user.roleAssignments[0];
+    return {
+      departmentId: assignment?.role.departmentId ?? "",
+      roleId: assignment?.role.id ?? "",
+      managerUserId: user.reportingManagerUserId ?? ""
+    };
+  }
+
+  function draftForUser(user: AdminUser) {
+    return rowDrafts[user.id] ?? baseDraftForUser(user);
+  }
+
+  function setUserDraft(user: AdminUser, input: Partial<ReturnType<typeof baseDraftForUser>>) {
+    setRowDrafts((current) => ({
+      ...current,
+      [user.id]: {
+        ...draftForUser(user),
+        ...input
+      }
+    }));
+  }
+
+  function hasDraftChanges(user: AdminUser) {
+    const draft = draftForUser(user);
+    const base = baseDraftForUser(user);
     return (
-      rowDepartmentIds[user.id] ??
-      assignment?.role.departmentId ??
-      ""
+      draft.departmentId !== base.departmentId ||
+      draft.roleId !== base.roleId ||
+      draft.managerUserId !== base.managerUserId
     );
   }
 
   function roleOptionsForDepartment(departmentId: string) {
     return roles.data?.data.filter((role) => role.departmentId === departmentId) ?? [];
+  }
+
+  function roleById(roleId: string) {
+    return roles.data?.data.find((role) => role.id === roleId);
+  }
+
+  function hasManagerialDraftRole(user: AdminUser) {
+    const role = roleById(draftForUser(user).roleId);
+    return role ? isManagerialRole(role) : false;
+  }
+
+  function saveUserChanges(user: AdminUser) {
+    const draft = draftForUser(user);
+    update.mutate({
+      id: user.id,
+      input: {
+        departmentId: draft.departmentId,
+        roleId: draft.roleId,
+        managerUserId: draft.managerUserId || null
+      }
+    });
   }
 
   return (
@@ -195,6 +276,8 @@ export function UsersPage() {
             onClick={() => {
               setError(undefined);
               setCreateDepartmentId("");
+              setCreateRoleId("");
+              setCreateManagerUserId("");
               setOpen(true);
             }}
             disabled={!tenantId}
@@ -208,15 +291,25 @@ export function UsersPage() {
       <Card>
         <CardHeader>
           <CardTitle>Users</CardTitle>
-          <CardDescription>Select a tenant to manage its accounts.</CardDescription>
-          <Select value={tenantId} onChange={(event) => setTenantId(event.target.value)}>
-            <option value="">Select tenant</option>
-            {tenants.data?.data.map((tenant) => (
-              <option key={tenant.id} value={tenant.id}>
-                {tenant.name} ({tenant.code})
-              </option>
-            ))}
-          </Select>
+          <CardDescription>
+            {isPlatformAdmin
+              ? "Select a tenant to manage its accounts."
+              : `Managing accounts for ${activeTenantLabel}.`}
+          </CardDescription>
+          {isPlatformAdmin ? (
+            <Select value={tenantId} onChange={(event) => setTenantId(event.target.value)}>
+              <option value="">Select tenant</option>
+              {tenants.data?.data.map((tenant) => (
+                <option key={tenant.id} value={tenant.id}>
+                  {tenant.name} ({tenant.code})
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <div className="rounded-md border bg-secondary/40 px-3 py-2 text-sm font-medium">
+              {activeTenantLabel}
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           {users.isLoading ? (
@@ -228,6 +321,7 @@ export function UsersPage() {
                   <TableHead>User</TableHead>
                   <TableHead>Department</TableHead>
                   <TableHead>Role</TableHead>
+                  <TableHead>Reporting manager</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>MFA</TableHead>
                   <TableHead>Actions</TableHead>
@@ -249,13 +343,13 @@ export function UsersPage() {
                     </TableCell>
                     <TableCell>
                       <Select
-                        value={departmentForUser(user)}
+                        value={draftForUser(user).departmentId}
                         disabled={!canUpdateUser || user.id === currentUser.id}
                         onChange={(event) =>
-                          setRowDepartmentIds((value) => ({
-                            ...value,
-                            [user.id]: event.target.value
-                          }))
+                          setUserDraft(user, {
+                            departmentId: event.target.value,
+                            roleId: ""
+                          })
                         }
                       >
                         <option value="" disabled>
@@ -270,32 +364,56 @@ export function UsersPage() {
                     </TableCell>
                     <TableCell>
                       <Select
-                        value={user.roleAssignments[0]?.role.id ?? ""}
+                        value={draftForUser(user).roleId}
                         disabled={
                           !canUpdateUser ||
                           user.id === currentUser.id ||
-                          !departmentForUser(user) ||
+                          !draftForUser(user).departmentId ||
                           update.isPending
                         }
-                        onChange={(event) =>
-                          update.mutate({
-                            id: user.id,
-                            input: {
-                              departmentId: departmentForUser(user),
-                              roleId: event.target.value
-                            }
-                          })
-                        }
+                        onChange={(event) => {
+                          const role = roleById(event.target.value);
+                          setUserDraft(user, {
+                            roleId: event.target.value,
+                            ...(role && isManagerialRole(role)
+                              ? { managerUserId: "" }
+                              : {})
+                          });
+                        }}
                       >
                         <option value="" disabled>
                           Select role
                         </option>
-                        {roleOptionsForDepartment(departmentForUser(user)).map((role) => (
+                        {roleOptionsForDepartment(draftForUser(user).departmentId).map((role) => (
                           <option key={role.id} value={role.id}>
                             {role.name}
                           </option>
                         ))}
                       </Select>
+                    </TableCell>
+                    <TableCell>
+                      {hasManagerialDraftRole(user) ? (
+                        <span className="text-sm text-muted-foreground">
+                          Managerial role
+                        </span>
+                      ) : (
+                        <Select
+                          value={draftForUser(user).managerUserId}
+                          disabled={!canUpdateUser || user.id === currentUser.id}
+                          onChange={(event) =>
+                            setUserDraft(user, { managerUserId: event.target.value })
+                          }
+                        >
+                          <option value="">No reporting manager</option>
+                          {managers.data?.data
+                            .filter((manager) => manager.id !== user.id)
+                            .map((manager) => (
+                              <option key={manager.id} value={manager.id}>
+                                {manager.firstName} {manager.lastName}
+                              </option>
+                            ))}
+                        </Select>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge variant={user.status === "ACTIVE" ? "success" : "secondary"}>
@@ -305,6 +423,25 @@ export function UsersPage() {
                     <TableCell>{user.mfaEnabled ? "Enabled" : "Not enabled"}</TableCell>
                     <TableCell>
                       <div className="flex gap-1">
+                        {canUpdateUser ? (
+                          <Button
+                            size="sm"
+                            disabled={
+                              user.id === currentUser.id ||
+                              !hasDraftChanges(user) ||
+                              !draftForUser(user).roleId ||
+                              update.isPending
+                            }
+                            onClick={() => saveUserChanges(user)}
+                          >
+                            {update.isPending ? (
+                              <LoaderCircle className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Save className="h-4 w-4" />
+                            )}
+                            Save
+                          </Button>
+                        ) : null}
                         {canUpdateUser ? (
                           <Button
                             size="sm"
@@ -378,7 +515,11 @@ export function UsersPage() {
             <Select
               name="departmentId"
               value={createDepartmentId}
-              onChange={(event) => setCreateDepartmentId(event.target.value)}
+              onChange={(event) => {
+                setCreateDepartmentId(event.target.value);
+                setCreateRoleId("");
+                setCreateManagerUserId("");
+              }}
               required
             >
               <option value="" disabled>
@@ -393,8 +534,12 @@ export function UsersPage() {
             <Select
               key={createDepartmentId}
               name="roleId"
-              defaultValue=""
+              value={createRoleId}
               disabled={!createDepartmentId}
+              onChange={(event) => {
+                setCreateRoleId(event.target.value);
+                setCreateManagerUserId("");
+              }}
               required
             >
               <option value="" disabled>
@@ -406,6 +551,19 @@ export function UsersPage() {
                 </option>
               ))}
             </Select>
+            {canAssignCreateManager ? (
+              <Select
+                value={createManagerUserId}
+                onChange={(event) => setCreateManagerUserId(event.target.value)}
+              >
+                <option value="">Select active reporting manager</option>
+                {managers.data?.data.map((manager) => (
+                  <option key={manager.id} value={manager.id}>
+                    {manager.firstName} {manager.lastName} ({manager.email})
+                  </option>
+                ))}
+              </Select>
+            ) : null}
             <Button className="w-full" disabled={create.isPending}>
               {create.isPending ? (
                 <LoaderCircle className="h-4 w-4 animate-spin" />
@@ -416,5 +574,13 @@ export function UsersPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function isManagerialRole(role: { roleType: string; code: string; name: string }) {
+  return (
+    role.roleType === "MANAGER" ||
+    role.code.toLowerCase().includes("manager") ||
+    role.name.toLowerCase().includes("manager")
   );
 }

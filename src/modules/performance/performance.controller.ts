@@ -203,6 +203,7 @@ function actor(req: Request) {
     tenantId: req.tenantAccess?.tenantId ?? null,
     userId: req.auth.userId,
     isPlatformAdmin: req.tenantAccess?.isPlatformAdmin ?? false,
+    permissions: req.auth.permissions,
     assignments: req.auth.assignments
   };
 }

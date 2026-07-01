@@ -30,19 +30,24 @@ import {
 } from "@/shared/ui/table";
 import { adminApi } from "@/features/admin/admin.api";
 import type { AdminPermission, AdminRole } from "@/features/admin/admin.types";
+import { useAuthStore } from "@/features/auth/auth.store";
 import { ApiError } from "@/shared/api/http";
 
 const roleTypes = ["TENANT", "ORGANIZATION", "MANAGER", "SELF"] as const;
 
 export function RolesPage() {
-  const [tenantId, setTenantId] = useState("");
+  const user = useAuthStore((state) => state.user);
+  const isPlatformAdmin = user?.isSuperAdmin ?? false;
+  const fixedTenantId = user?.tenantId ?? user?.memberships?.[0]?.tenantId ?? "";
+  const [tenantId, setTenantId] = useState(isPlatformAdmin ? "" : fixedTenantId);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<AdminRole | null>(null);
   const [error, setError] = useState<string>();
   const queryClient = useQueryClient();
   const tenants = useQuery({
     queryKey: ["admin", "tenants"],
-    queryFn: () => adminApi.listTenants()
+    queryFn: () => adminApi.listTenants(),
+    enabled: isPlatformAdmin
   });
   const roles = useQuery({
     queryKey: ["admin", "roles", tenantId],
@@ -55,13 +60,17 @@ export function RolesPage() {
   });
 
   useEffect(() => {
+    if (!isPlatformAdmin) {
+      if (fixedTenantId && tenantId !== fixedTenantId) setTenantId(fixedTenantId);
+      return;
+    }
     if (!tenantId && tenants.data?.data[0]) {
       const customerTenant =
         tenants.data.data.find((tenant) => tenant.code !== "platform") ??
         tenants.data.data[0];
       setTenantId(customerTenant.id);
     }
-  }, [tenantId, tenants.data]);
+  }, [fixedTenantId, isPlatformAdmin, tenantId, tenants.data]);
 
   const groupedPermissions = useMemo(() => {
     const groups = new Map<string, AdminPermission[]>();
@@ -160,6 +169,11 @@ export function RolesPage() {
   const selectedPermissionIds = new Set(
     editing?.permissions.map((item) => item.permission.id) ?? []
   );
+  const activeTenantLabel =
+    user?.memberships?.find((membership) => membership.tenantId === tenantId)
+      ?.tenant.name ??
+    tenants.data?.data.find((tenant) => tenant.id === tenantId)?.name ??
+    "Current organization";
 
   return (
     <div className="space-y-6">
@@ -179,15 +193,25 @@ export function RolesPage() {
       <Card>
         <CardHeader>
           <CardTitle>Roles</CardTitle>
-          <CardDescription>Select a tenant to manage its role catalog.</CardDescription>
-          <Select value={tenantId} onChange={(event) => setTenantId(event.target.value)}>
-            <option value="">Select tenant</option>
-            {tenants.data?.data.map((tenant) => (
-              <option key={tenant.id} value={tenant.id}>
-                {tenant.name} ({tenant.code})
-              </option>
-            ))}
-          </Select>
+          <CardDescription>
+            {isPlatformAdmin
+              ? "Select a tenant to manage its role catalog."
+              : `Managing roles for ${activeTenantLabel}.`}
+          </CardDescription>
+          {isPlatformAdmin ? (
+            <Select value={tenantId} onChange={(event) => setTenantId(event.target.value)}>
+              <option value="">Select tenant</option>
+              {tenants.data?.data.map((tenant) => (
+                <option key={tenant.id} value={tenant.id}>
+                  {tenant.name} ({tenant.code})
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <div className="rounded-md border bg-secondary/40 px-3 py-2 text-sm font-medium">
+              {activeTenantLabel}
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           {roles.isLoading ? (

@@ -11,6 +11,63 @@ import {
 const seededPassword =
   process.env.RBAC_TEST_PASSWORD ?? "Qg5Y3LPJ%Xb$rj2DMNEYP!wr";
 
+const canonicalSeedUsers = [
+  {
+    email: "superadmin@venturesoft.ai",
+    username: "superadmin",
+    firstName: "Platform",
+    lastName: "Super Admin",
+    roleCode: PLATFORM_ROLE.code,
+    tenantCode: null,
+    scopeType: "PLATFORM" as const
+  },
+  {
+    email: "orgadmin@venturesoft.ai",
+    username: "orgadmin",
+    firstName: "Organization",
+    lastName: "Admin",
+    roleCode: "ORGANIZATION_ADMIN",
+    tenantCode: "venturesoft",
+    scopeType: "TENANT" as const
+  },
+  {
+    email: "hrmanager@venturesoft.ai",
+    username: "hrmanager",
+    firstName: "HR",
+    lastName: "Manager",
+    roleCode: "HR_MANAGER",
+    tenantCode: "venturesoft",
+    scopeType: "ORGANIZATION" as const
+  },
+  {
+    email: "recruiter@venturesoft.ai",
+    username: "recruiter",
+    firstName: "Recruitment",
+    lastName: "User",
+    roleCode: "RECRUITER",
+    tenantCode: "venturesoft",
+    scopeType: "ORGANIZATION" as const
+  },
+  {
+    email: "manager@venturesoft.ai",
+    username: "manager",
+    firstName: "Team",
+    lastName: "Manager",
+    roleCode: "MANAGER",
+    tenantCode: "venturesoft",
+    scopeType: "ORGANIZATION" as const
+  },
+  {
+    email: "employee@venturesoft.ai",
+    username: "employee",
+    firstName: "Sample",
+    lastName: "Employee",
+    roleCode: "EMPLOYEE",
+    tenantCode: "venturesoft",
+    scopeType: "SELF" as const
+  }
+];
+
 let server: Server;
 let baseUrl: string;
 let prisma: typeof import("../../src/core/db.js").prisma;
@@ -25,6 +82,7 @@ beforeAll(async () => {
   prisma = prismaModule.prisma;
   cryptoService = cryptoModule.cryptoService;
   tokenService = tokenModule.tokenService;
+  await ensureCanonicalSeedUsers();
   server = createServer(appModule.createApp());
   await new Promise<void>((resolve) => server.listen(0, resolve));
   const address = server.address() as AddressInfo;
@@ -1341,6 +1399,106 @@ async function cleanupTenant(tenantId: string): Promise<void> {
   await prisma.tenantMembership.deleteMany({ where: { tenantId } });
   await prisma.authSession.deleteMany({ where: { tenantId } });
   await prisma.tenant.deleteMany({ where: { id: tenantId } });
+}
+
+async function ensureCanonicalSeedUsers(): Promise<void> {
+  const passwordHash = await cryptoService.hashPassword(seededPassword);
+  const tenant = await prisma.tenant.findUniqueOrThrow({
+    where: { code: "venturesoft" },
+    select: { id: true }
+  });
+  const rootOrganization = await prisma.organization.findUniqueOrThrow({
+    where: {
+      tenantId_code: {
+        tenantId: tenant.id,
+        code: "ROOT"
+      }
+    },
+    select: { id: true }
+  });
+
+  for (const fixture of canonicalSeedUsers) {
+    const tenantId = fixture.tenantCode ? tenant.id : null;
+    const role = await prisma.role.findFirstOrThrow({
+      where: {
+        tenantId,
+        code: fixture.roleCode,
+        deletedAt: null
+      },
+      select: { id: true }
+    });
+    const user = await prisma.user.upsert({
+      where: { email: fixture.email },
+      update: {
+        username: fixture.username,
+        firstName: fixture.firstName,
+        lastName: fixture.lastName,
+        passwordHash,
+        status: "ACTIVE",
+        failedLoginCount: 0,
+        lockedUntil: null,
+        deletedAt: null,
+        deletedBy: null
+      },
+      create: {
+        email: fixture.email,
+        username: fixture.username,
+        firstName: fixture.firstName,
+        lastName: fixture.lastName,
+        passwordHash,
+        status: "ACTIVE",
+        emailVerifiedAt: new Date()
+      },
+      select: { id: true }
+    });
+
+    if (tenantId) {
+      await prisma.tenantMembership.upsert({
+        where: {
+          tenantId_userId: {
+            tenantId,
+            userId: user.id
+          }
+        },
+        update: {
+          status: "ACTIVE",
+          deletedAt: null,
+          deletedBy: null,
+          joinedAt: new Date()
+        },
+        create: {
+          tenantId,
+          userId: user.id,
+          status: "ACTIVE",
+          joinedAt: new Date()
+        }
+      });
+    }
+
+    await prisma.roleAssignment.updateMany({
+      where: {
+        userId: user.id,
+        deletedAt: null,
+        OR: tenantId
+          ? [{ tenantId }, { tenantId: null, scopeType: "PLATFORM" }]
+          : [{ tenantId: null, scopeType: "PLATFORM" }]
+      },
+      data: {
+        deletedAt: new Date()
+      }
+    });
+    await prisma.roleAssignment.create({
+      data: {
+        tenantId,
+        userId: user.id,
+        roleId: role.id,
+        organizationId:
+          fixture.scopeType === "ORGANIZATION" ? rootOrganization.id : null,
+        scopeType: fixture.scopeType,
+        includeDescendants: fixture.scopeType === "ORGANIZATION"
+      }
+    });
+  }
 }
 
 async function issueAccessToken(

@@ -413,7 +413,7 @@ export class AdminService {
                   ...(tenantId ? { tenantId } : {}),
                   role:
                     input.role === "manager"
-                      ? { roleType: "MANAGER" as const, deletedAt: null }
+                      ? managerialRoleWhere()
                       : { code: "EMPLOYEE", deletedAt: null }
                 }
               }
@@ -433,6 +433,7 @@ export class AdminService {
         mfaEnabled: true,
         lastLoginAt: true,
         createdAt: true,
+        preferences: true,
         memberships: {
           where: {
             deletedAt: null,
@@ -470,6 +471,27 @@ export class AdminService {
         }
       }
     });
+    const reportingManagerIds = [
+      ...new Set(
+        rows
+          .map((row) => reportingManagerUserId(row.preferences))
+          .filter((managerId): managerId is string => Boolean(managerId))
+      )
+    ];
+    const reportingManagers = reportingManagerIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: reportingManagerIds }, deletedAt: null },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        })
+      : [];
+    const reportingManagerById = new Map(
+      reportingManagers.map((manager) => [manager.id, manager])
+    );
     const targetTenant = tenantId
       ? await prisma.tenant.findUnique({
           where: { id: tenantId },
@@ -479,8 +501,14 @@ export class AdminService {
     return page(
       rows.map((row) => {
         const membership = row.memberships[0];
+        const managerUserId = reportingManagerUserId(row.preferences);
+        const { preferences: _preferences, ...user } = row;
         return {
-          ...row,
+          ...user,
+          reportingManagerUserId: managerUserId,
+          reportingManager: managerUserId
+            ? reportingManagerById.get(managerUserId) ?? null
+            : null,
           status:
             membership?.status === "SUSPENDED"
               ? "LOCKED"
@@ -725,6 +753,7 @@ export class AdminService {
       roleId: string;
       departmentId?: string;
       organizationId?: string | null;
+      managerUserId?: string | null;
     },
     actor: Actor,
     context: RequestContext
@@ -745,6 +774,15 @@ export class AdminService {
       data.roleId,
       assignment.departmentId
     );
+    if (data.managerUserId && isManagerialRole(assignment.role)) {
+      throw new ValidationError([
+        {
+          field: "managerUserId",
+          code: "INVALID_MANAGER",
+          message: "Managerial users do not need a reporting manager."
+        }
+      ]);
+    }
     const existing = await prisma.user.findFirst({
       where: { email: data.email, deletedAt: null }
     });
@@ -793,6 +831,9 @@ export class AdminService {
     const passwordHash = existing
       ? undefined
       : await cryptoService.hashPassword(data.password);
+    if (existing && data.managerUserId !== undefined) {
+      await validateReportingManager(prisma, tenantId, existing.id, data.managerUserId);
+    }
 
     return prisma.$transaction(async (tx) => {
       await releaseDeletedUserIdentities(
@@ -807,6 +848,14 @@ export class AdminService {
             data: {
               deletedAt: null,
               deletedBy: null,
+              ...(data.managerUserId !== undefined
+                ? {
+                    preferences: preferencesWithReportingManager(
+                      existing.preferences,
+                      data.managerUserId
+                    )
+                  }
+                : {}),
               rowVersion: { increment: 1 }
             }
           })
@@ -821,9 +870,17 @@ export class AdminService {
               emailVerifiedAt: data.status === "ACTIVE" ? new Date() : null,
               createdBy: actor.userId,
               updatedBy: actor.userId,
-              preferences: { mustChangePassword: true }
+              preferences: {
+                mustChangePassword: true,
+                ...(data.managerUserId
+                  ? { reportingManagerUserId: data.managerUserId }
+                  : {})
+              }
             }
           });
+      if (!existing && data.managerUserId !== undefined) {
+        await validateReportingManager(tx, tenantId, user.id, data.managerUserId);
+      }
 
       await tx.tenantMembership.upsert({
         where: {
@@ -893,6 +950,7 @@ export class AdminService {
       roleId?: string;
       departmentId?: string;
       organizationId?: string | null;
+      managerUserId?: string | null;
     },
     actor: Actor,
     context: RequestContext
@@ -930,8 +988,18 @@ export class AdminService {
         assignment.departmentId
       );
     }
+    if (data.managerUserId !== undefined) {
+      await validateReportingManager(prisma, tenantId, id, data.managerUserId);
+    }
 
-    const { roleId, departmentId, organizationId, password, ...userData } = data;
+    const {
+      roleId,
+      departmentId,
+      organizationId,
+      managerUserId,
+      password,
+      ...userData
+    } = data;
     if (!actor.isPlatformAdmin && (userData.email || userData.username)) {
       throw new AuthorizationError(
         "Tenant administrators cannot change global login credentials."
@@ -940,6 +1008,10 @@ export class AdminService {
     const passwordHash = password
       ? await cryptoService.hashPassword(password)
       : undefined;
+    const updatedPreferences =
+      managerUserId !== undefined
+        ? preferencesWithReportingManager(existing.preferences, managerUserId)
+        : undefined;
     return prisma.$transaction(async (tx) => {
       const { status, ...identityData } = userData;
       const user = await tx.user.update({
@@ -947,6 +1019,7 @@ export class AdminService {
         data: {
           ...identityData,
           ...(passwordHash ? { passwordHash } : {}),
+          ...(updatedPreferences ? { preferences: updatedPreferences } : {}),
           updatedBy: actor.userId,
           rowVersion: { increment: 1 }
         }
@@ -1765,6 +1838,8 @@ async function resolveAssignableUserRole(
 ): Promise<{
   role: {
     id: string;
+    code: string;
+    name: string;
     roleType: "PLATFORM" | "TENANT" | "ORGANIZATION" | "MANAGER" | "SELF";
     departmentId: string | null;
   };
@@ -1773,7 +1848,7 @@ async function resolveAssignableUserRole(
 }> {
   const role = await db.role.findFirst({
     where: { id: input.roleId, tenantId, deletedAt: null },
-    select: { id: true, roleType: true, departmentId: true }
+    select: { id: true, code: true, name: true, roleType: true, departmentId: true }
   });
   if (!role) throw new NotFoundError("Role");
   if (!actor.isPlatformAdmin && role.roleType === "TENANT") {
@@ -1845,6 +1920,109 @@ function membershipStatus(
   status: "INVITED" | "ACTIVE" | "LOCKED" | "DISABLED"
 ): "INVITED" | "ACTIVE" | "SUSPENDED" | "DISABLED" {
   return status === "LOCKED" ? "SUSPENDED" : status;
+}
+
+function preferencesObject(value: Prisma.JsonValue): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? { ...(value as Record<string, unknown>) }
+    : {};
+}
+
+function reportingManagerUserId(value: Prisma.JsonValue): string | null {
+  const managerUserId = preferencesObject(value).reportingManagerUserId;
+  return typeof managerUserId === "string" && managerUserId ? managerUserId : null;
+}
+
+function preferencesWithReportingManager(
+  value: Prisma.JsonValue,
+  managerUserId: string | null
+): Prisma.InputJsonValue {
+  const preferences = preferencesObject(value);
+  if (managerUserId) {
+    preferences.reportingManagerUserId = managerUserId;
+  } else {
+    delete preferences.reportingManagerUserId;
+  }
+  return preferences as Prisma.InputJsonValue;
+}
+
+async function validateReportingManager(
+  db: Transaction | PrismaClient,
+  tenantId: string | null,
+  userId: string,
+  managerUserId: string | null
+) {
+  if (!managerUserId) return;
+  if (managerUserId === userId) {
+    throw new ValidationError([
+      {
+        field: "managerUserId",
+        code: "INVALID_MANAGER",
+        message: "A user cannot report to themselves."
+      }
+    ]);
+  }
+  if (!tenantId) {
+    throw new ValidationError([
+      {
+        field: "managerUserId",
+        code: "INVALID_SCOPE",
+        message: "A tenant context is required to assign a reporting manager."
+      }
+    ]);
+  }
+  const manager = await db.tenantMembership.findFirst({
+    where: {
+      tenantId,
+      userId: managerUserId,
+      status: "ACTIVE",
+      deletedAt: null,
+      user: {
+        status: "ACTIVE",
+        deletedAt: null,
+        roleAssignments: {
+          some: {
+            tenantId,
+            deletedAt: null,
+            role: managerialRoleWhere()
+          }
+        }
+      }
+    },
+    select: { userId: true }
+  });
+  if (!manager) {
+    throw new ValidationError([
+      {
+        field: "managerUserId",
+        code: "INVALID_MANAGER",
+        message: "Reporting manager must be an active manager in the selected tenant."
+      }
+    ]);
+  }
+}
+
+function managerialRoleWhere(): Prisma.RoleWhereInput {
+  return {
+    deletedAt: null,
+    OR: [
+      { roleType: "MANAGER" },
+      { code: { contains: "MANAGER", mode: "insensitive" } },
+      { name: { contains: "Manager", mode: "insensitive" } }
+    ]
+  };
+}
+
+function isManagerialRole(role: {
+  roleType: "PLATFORM" | "TENANT" | "ORGANIZATION" | "MANAGER" | "SELF";
+  code: string;
+  name: string;
+}): boolean {
+  return (
+    role.roleType === "MANAGER" ||
+    role.code.toLowerCase().includes("manager") ||
+    role.name.toLowerCase().includes("manager")
+  );
 }
 
 export const adminService = new AdminService();

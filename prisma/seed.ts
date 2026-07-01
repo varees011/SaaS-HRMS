@@ -24,50 +24,53 @@ const platformTenantCode =
   process.env.SUPER_ADMIN_TENANT_CODE ?? "platform";
 const tenantCode = process.env.RBAC_SEED_TENANT_CODE ?? "venturesoft";
 const tenantName = process.env.RBAC_SEED_TENANT_NAME ?? "VentureSoft.AI";
-const tenantPassword =
-  process.env.RBAC_SEED_PASSWORD ?? platformPassword;
 const resetPasswords =
   process.env.RESET_SUPER_ADMIN_PASSWORD?.toLowerCase() === "true";
 
-const tenantUsers = [
-  {
-    roleCode: "ORGANIZATION_ADMIN",
-    email: "orgadmin@venturesoft.ai",
-    username: "orgadmin",
-    firstName: "Organization",
-    lastName: "Admin"
-  },
-  {
-    roleCode: "HR_MANAGER",
-    email: "hrmanager@venturesoft.ai",
-    username: "hrmanager",
-    firstName: "HR",
-    lastName: "Manager"
-  },
-  {
-    roleCode: "RECRUITER",
-    email: "recruiter@venturesoft.ai",
-    username: "recruiter",
-    firstName: "Recruitment",
-    lastName: "User"
-  },
-  {
-    roleCode: "MANAGER",
-    email: "manager@venturesoft.ai",
-    username: "manager",
-    firstName: "Team",
-    lastName: "Manager"
-  },
-  {
-    roleCode: "EMPLOYEE",
-    email: "employee@venturesoft.ai",
-    username: "employee",
-    firstName: "Sample",
-    lastName: "Employee"
-  }
+const legacySeedUserEmails = [
+  "orgadmin@venturesoft.ai",
+  "hrmanager@venturesoft.ai",
+  "recruiter@venturesoft.ai",
+  "manager@venturesoft.ai",
+  "employee@venturesoft.ai"
 ] as const;
 
 const departmentRoleCatalog = [
+  {
+    department: "Software Services",
+    roles: [
+      "Business Analyst-Software Services",
+      "QA Lead",
+      "Software Architect",
+      "Software Engineer"
+    ]
+  },
+  {
+    department: "Product Engineering",
+    roles: [
+      "Software Engineer",
+      "Support Analyst",
+      "Systems Engineer",
+      "NOC Engineer"
+    ]
+  },
+  {
+    department: "Infrastructure and Cloud Services",
+    roles: [
+      "Sr. Solutions Architect",
+      "Systems Engineer",
+      "System Engineer Cloud",
+      "NOC Engineer"
+    ]
+  },
+  {
+    department: "Human Resource",
+    roles: ["HR Generalist"]
+  },
+  {
+    department: "Sales & Marketing",
+    roles: ["Digital Marketing Manager"]
+  },
   {
     department: "Engineering / IT",
     roles: [
@@ -214,14 +217,8 @@ async function main(): Promise<void> {
       "SUPER_ADMIN_PASSWORD is required and must contain at least 16 characters."
     );
   }
-  if (!tenantPassword || tenantPassword.length < 12) {
-    throw new Error(
-      "RBAC_SEED_PASSWORD or SUPER_ADMIN_PASSWORD must contain at least 12 characters."
-    );
-  }
 
   const platformPasswordHash = await hashPassword(platformPassword);
-  const tenantPasswordHash = await hashPassword(tenantPassword);
 
   const result = await prisma.$transaction(async (tx) => {
     const permissionIds = await seedPermissions(tx);
@@ -313,10 +310,8 @@ async function main(): Promise<void> {
       }
     });
 
-    const tenantRoleIds = new Map<string, string>();
     for (const template of TENANT_ROLES) {
-      const role = await upsertRole(tx, template, tenant.id, permissionIds);
-      tenantRoleIds.set(template.code, role.id);
+      await upsertRole(tx, template, tenant.id, permissionIds);
     }
     const departmentSeed = await seedDepartmentRoles(tx, {
       tenantId: tenant.id,
@@ -325,73 +320,9 @@ async function main(): Promise<void> {
       permissionIds
     });
 
-    const seededUsers: Array<{ id: string; email: string; role: string }> = [];
-    const usersByRole = new Map<string, string>();
-    for (const definition of tenantUsers) {
-      const user = await upsertUser(tx, {
-        email: definition.email,
-        username: definition.username,
-        firstName: definition.firstName,
-        lastName: definition.lastName,
-        passwordHash: tenantPasswordHash,
-        resetPassword: resetPasswords,
-        preferences: { mustChangePassword: true }
-      });
-      await tx.tenantMembership.upsert({
-        where: {
-          tenantId_userId: { tenantId: tenant.id, userId: user.id }
-        },
-        update: {
-          status: "ACTIVE",
-          joinedAt: new Date(),
-          deletedAt: null,
-          deletedBy: null,
-          updatedBy: platformUser.id,
-          rowVersion: { increment: 1 }
-        },
-        create: {
-          tenantId: tenant.id,
-          userId: user.id,
-          status: "ACTIVE",
-          joinedAt: new Date(),
-          createdBy: platformUser.id,
-          updatedBy: platformUser.id
-        }
-      });
-
-      const template = TENANT_ROLES.find(
-        (item) => item.code === definition.roleCode
-      );
-      const roleId = tenantRoleIds.get(definition.roleCode);
-      if (!template || !roleId) {
-        throw new Error(`Missing role template ${definition.roleCode}.`);
-      }
-      const organizationId =
-        template.defaultScope === "ORGANIZATION" ||
-        template.defaultScope === "TEAM"
-          ? organization.id
-          : null;
-      await upsertAssignment(tx, {
-        userId: user.id,
-        roleId,
-        tenantId: tenant.id,
-        organizationId,
-        scopeType: template.defaultScope,
-        includeDescendants:
-          template.defaultScope === "ORGANIZATION" ||
-          template.defaultScope === "TEAM",
-        assignedBy: platformUser.id
-      });
-      seededUsers.push({ id: user.id, email: user.email, role: definition.roleCode });
-      usersByRole.set(definition.roleCode, user.id);
-    }
-
-    await seedPerformanceTemplate(tx, {
+    const cleanup = await cleanupDemoData(tx, {
       tenantId: tenant.id,
-      organizationId: organization.id,
-      actorUserId: platformUser.id,
-      managerUserId: usersByRole.get("MANAGER") ?? null,
-      employeeUserId: usersByRole.get("EMPLOYEE") ?? null
+      actorUserId: platformUser.id
     });
 
     await tx.auditEvent.create({
@@ -409,7 +340,7 @@ async function main(): Promise<void> {
           tenantRoles: TENANT_ROLES.map((role) => role.code),
           departments: departmentSeed.departments,
           departmentRoles: departmentSeed.roleCount,
-          users: seededUsers
+          demoCleanup: cleanup
         } satisfies Prisma.InputJsonValue
       }
     });
@@ -419,7 +350,7 @@ async function main(): Promise<void> {
       platformRole: PLATFORM_ROLE.code,
       platformTenant: platformTenant.code,
       tenant: tenant.code,
-      tenantUsers: seededUsers,
+      demoCleanup: cleanup,
       departmentCount: departmentSeed.departments.length,
       departmentRoleCount: departmentSeed.roleCount,
       permissionCount: PERMISSIONS.length
@@ -592,16 +523,33 @@ async function upsertAssignment(
     assignedBy: string;
   }
 ) {
-  const existing = await tx.roleAssignment.findFirst({
+  const existingAssignments = await tx.roleAssignment.findMany({
     where: {
       userId: input.userId,
       roleId: input.roleId,
       tenantId: input.tenantId,
       organizationId: input.organizationId,
       scopeType: input.scopeType
-    }
+    },
+    orderBy: [{ deletedAt: "asc" }, { createdAt: "asc" }]
   });
+  const existing =
+    existingAssignments.find((assignment) => !assignment.deletedAt) ??
+    existingAssignments[0];
   if (existing) {
+    const duplicateIds = existingAssignments
+      .filter((assignment) => assignment.id !== existing.id)
+      .map((assignment) => assignment.id);
+    if (duplicateIds.length) {
+      await tx.roleAssignment.updateMany({
+        where: { id: { in: duplicateIds } },
+        data: {
+          validUntil: new Date(),
+          deletedAt: new Date(),
+          deletedBy: input.assignedBy
+        }
+      });
+    }
     return tx.roleAssignment.update({
       where: { id: existing.id },
       data: {
@@ -731,6 +679,157 @@ async function syncRolePermissionIds(
       });
     }
   }
+}
+
+async function cleanupDemoData(
+  tx: Prisma.TransactionClient,
+  input: { tenantId: string; actorUserId: string }
+) {
+  const now = new Date();
+  const users = await tx.user.findMany({
+    where: { email: { in: [...legacySeedUserEmails] } },
+    select: { id: true, email: true }
+  });
+  const userIds = users.map((user) => user.id);
+  const cycles = await tx.performanceReviewCycle.findMany({
+    where: {
+      tenantId: input.tenantId,
+      name: "FY2026 VentureSoft Performance Review"
+    },
+    select: { id: true }
+  });
+  const cycleIds = cycles.map((cycle) => cycle.id);
+
+  if (cycleIds.length) {
+    await tx.performanceEvidence.updateMany({
+      where: {
+        tenantId: input.tenantId,
+        deletedAt: null,
+        review: { cycleId: { in: cycleIds } }
+      },
+      data: { deletedAt: now }
+    });
+    await tx.performanceReview.updateMany({
+      where: {
+        tenantId: input.tenantId,
+        cycleId: { in: cycleIds },
+        deletedAt: null
+      },
+      data: {
+        deletedAt: now,
+        deletedBy: input.actorUserId,
+        updatedBy: input.actorUserId,
+        rowVersion: { increment: 1 }
+      }
+    });
+    await tx.performanceKpi.updateMany({
+      where: {
+        tenantId: input.tenantId,
+        deletedAt: null,
+        kra: { goal: { cycleId: { in: cycleIds } } }
+      },
+      data: { deletedAt: now }
+    });
+    await tx.performanceKra.updateMany({
+      where: {
+        tenantId: input.tenantId,
+        deletedAt: null,
+        goal: { cycleId: { in: cycleIds } }
+      },
+      data: { deletedAt: now }
+    });
+    await tx.performanceGoal.updateMany({
+      where: {
+        tenantId: input.tenantId,
+        cycleId: { in: cycleIds },
+        deletedAt: null
+      },
+      data: {
+        deletedAt: now,
+        deletedBy: input.actorUserId,
+        updatedBy: input.actorUserId,
+        rowVersion: { increment: 1 }
+      }
+    });
+    await tx.performanceReviewCycle.updateMany({
+      where: {
+        tenantId: input.tenantId,
+        id: { in: cycleIds },
+        deletedAt: null
+      },
+      data: {
+        status: "ARCHIVED",
+        deletedAt: now,
+        deletedBy: input.actorUserId,
+        updatedBy: input.actorUserId,
+        rowVersion: { increment: 1 }
+      }
+    });
+  }
+
+  if (userIds.length) {
+    await tx.performanceEvidence.updateMany({
+      where: {
+        tenantId: input.tenantId,
+        uploadedByUserId: { in: userIds },
+        deletedAt: null
+      },
+      data: { deletedAt: now }
+    });
+    await tx.performanceReview.updateMany({
+      where: {
+        tenantId: input.tenantId,
+        deletedAt: null,
+        OR: [
+          { employeeUserId: { in: userIds } },
+          { managerUserId: { in: userIds } }
+        ]
+      },
+      data: {
+        deletedAt: now,
+        deletedBy: input.actorUserId,
+        updatedBy: input.actorUserId,
+        rowVersion: { increment: 1 }
+      }
+    });
+    await tx.authSession.deleteMany({
+      where: { userId: { in: userIds } }
+    });
+    await tx.roleAssignment.updateMany({
+      where: { userId: { in: userIds }, deletedAt: null },
+      data: { deletedAt: now, deletedBy: input.actorUserId }
+    });
+    await tx.tenantMembership.updateMany({
+      where: {
+        tenantId: input.tenantId,
+        userId: { in: userIds },
+        deletedAt: null
+      },
+      data: {
+        status: "DISABLED",
+        deletedAt: now,
+        deletedBy: input.actorUserId,
+        updatedBy: input.actorUserId,
+        rowVersion: { increment: 1 }
+      }
+    });
+    await tx.user.updateMany({
+      where: { id: { in: userIds }, deletedAt: null },
+      data: {
+        status: "DISABLED",
+        deletedAt: now,
+        deletedBy: input.actorUserId,
+        failedLoginCount: 0,
+        lockedUntil: null,
+        rowVersion: { increment: 1 }
+      }
+    });
+  }
+
+  return {
+    usersArchived: userIds.length,
+    cyclesArchived: cycleIds.length
+  };
 }
 
 async function seedPerformanceTemplate(

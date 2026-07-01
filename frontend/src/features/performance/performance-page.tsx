@@ -14,6 +14,7 @@ import {
   Users
 } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Alert } from "@/shared/ui/alert";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -37,6 +38,10 @@ import {
 import { adminApi } from "@/features/admin/admin.api";
 import type { AdminUser, Organization } from "@/features/admin/admin.types";
 import { performanceApi } from "@/features/performance/performance.api";
+import {
+  performanceTemplates,
+  type PerformanceTemplate
+} from "@/features/performance/performance-templates";
 import type {
   PerformanceGoal,
   PerformanceKpi,
@@ -48,23 +53,75 @@ import { ApiError } from "@/shared/api/http";
 import { cn } from "@/shared/lib/cn";
 
 type Step = 0 | 1 | 2;
+type PerformanceSection = "setup" | "hierarchy" | "assignments" | "reviews" | "assessments";
 
 const steps = ["Cycle Details", "Goals, KRAs & KPIs", "Review Assignments"];
+const performanceSections = [
+  {
+    id: "setup",
+    label: "Cycle setup",
+    description: "Create or select the review cycle.",
+    icon: ClipboardCheck
+  },
+  {
+    id: "hierarchy",
+    label: "Goal hierarchy",
+    description: "Manage goals, KRAs, and KPIs.",
+    icon: Target
+  },
+  {
+    id: "assignments",
+    label: "Assignments",
+    description: "Assign assessments by scope and manager.",
+    icon: Users
+  },
+  {
+    id: "reviews",
+    label: "Reviews",
+    description: "Track employee review status.",
+    icon: FileCheck2
+  },
+  {
+    id: "assessments",
+    label: "Assessments",
+    description: "Submit self and manager scores.",
+    icon: BarChart3
+  }
+] satisfies Array<{
+  id: PerformanceSection;
+  label: string;
+  description: string;
+  icon: typeof ClipboardCheck;
+}>;
 
 const emptyGoal = { name: "", description: "", weightage: "" };
 const emptyKra = { title: "", description: "", weightage: "" };
 const emptyKpi = { description: "", targetValue: "", weightage: "" };
 
+function normalizePerformanceSection(value: string | null): PerformanceSection {
+  return performanceSections.some((section) => section.id === value)
+    ? (value as PerformanceSection)
+    : "setup";
+}
+
 export function PerformancePage() {
   const user = useAuthStore((state) => state.user)!;
-  const [tenantId, setTenantId] = useState(
-    user.tenantId ?? user.memberships?.[0]?.tenantId ?? ""
-  );
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeSection = normalizePerformanceSection(searchParams.get("section"));
+  const canSwitchTenants = user.isSuperAdmin;
+  const fixedTenantId = user.tenantId ?? user.memberships?.[0]?.tenantId ?? "";
+  const [tenantId, setTenantId] = useState(canSwitchTenants ? "" : fixedTenantId);
   const [cycleId, setCycleId] = useState("");
   const [activeStep, setActiveStep] = useState<Step>(0);
   const [error, setError] = useState<string>();
   const [success, setSuccess] = useState<string>();
   const queryClient = useQueryClient();
+
+  function setPerformanceSection(section: PerformanceSection) {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("section", section);
+    setSearchParams(nextParams);
+  }
 
   const canListTenants = hasAnyPermission(user, [
     "platform.tenants.read",
@@ -81,26 +138,33 @@ export function PerformancePage() {
     "tenant.performance.manage",
     "team.performance.review"
   ]);
+  const canReadPerformanceManagement = hasAnyPermission(user, [
+    "tenant.performance.read",
+    "tenant.performance.manage",
+    "team.performance.review"
+  ]);
+  const isSelfPerformanceOnly =
+    !canReadPerformanceManagement && hasAnyPermission(user, ["self.performance.read"]);
 
   const tenants = useQuery({
     queryKey: ["admin", "tenants", "performance"],
     queryFn: () => adminApi.listTenants(),
-    enabled: canListTenants
+    enabled: canSwitchTenants && canListTenants
   });
   const cycles = useQuery({
     queryKey: ["performance", "cycles", tenantId],
     queryFn: () => performanceApi.listCycles({ tenantId }),
-    enabled: Boolean(tenantId)
+    enabled: Boolean(tenantId) && !isSelfPerformanceOnly
   });
   const dashboard = useQuery({
     queryKey: ["performance", "dashboard", tenantId, cycleId],
     queryFn: () => performanceApi.dashboard({ tenantId, cycleId }),
-    enabled: Boolean(tenantId)
+    enabled: Boolean(tenantId) && !isSelfPerformanceOnly
   });
   const goals = useQuery({
     queryKey: ["performance", "goals", tenantId, cycleId],
     queryFn: () => performanceApi.listGoals({ tenantId, cycleId }),
-    enabled: Boolean(tenantId && cycleId)
+    enabled: Boolean(tenantId && cycleId) && !isSelfPerformanceOnly
   });
   const reviews = useQuery({
     queryKey: ["performance", "reviews", tenantId, cycleId],
@@ -109,13 +173,17 @@ export function PerformancePage() {
   });
 
   useEffect(() => {
+    if (!canSwitchTenants) {
+      if (fixedTenantId && tenantId !== fixedTenantId) setTenantId(fixedTenantId);
+      return;
+    }
     if (!tenantId && tenants.data?.data[0]) {
       const customerTenant =
         tenants.data.data.find((tenant) => tenant.code !== "platform") ??
         tenants.data.data[0];
       setTenantId(customerTenant.id);
     }
-  }, [tenantId, tenants.data]);
+  }, [canSwitchTenants, fixedTenantId, tenantId, tenants.data]);
 
   useEffect(() => {
     if (!cycleId && cycles.data?.data[0]) {
@@ -123,8 +191,14 @@ export function PerformancePage() {
     }
   }, [cycleId, cycles.data]);
 
+  useEffect(() => {
+    if (activeSection === "setup") setActiveStep(0);
+    if (activeSection === "hierarchy") setActiveStep(1);
+    if (activeSection === "assignments") setActiveStep(2);
+  }, [activeSection]);
+
   const tenantOptions = useMemo(() => {
-    if (tenants.data?.data.length) return tenants.data.data;
+    if (canSwitchTenants && tenants.data?.data.length) return tenants.data.data;
     return (
       user.memberships?.map((membership) => ({
         id: membership.tenantId,
@@ -132,7 +206,10 @@ export function PerformancePage() {
         name: membership.tenant.name
       })) ?? []
     );
-  }, [tenants.data, user.memberships]);
+  }, [canSwitchTenants, tenants.data, user.memberships]);
+  const activeTenantLabel =
+    tenantOptions.find((tenant) => tenant.id === tenantId)?.name ??
+    "Current organization";
 
   const invalidatePerformance = async () => {
     await Promise.all([
@@ -150,6 +227,10 @@ export function PerformancePage() {
       setError(fieldMessages ? `${reason.message} ${fieldMessages}` : reason.message);
       return;
     }
+    if (reason instanceof Error) {
+      setError(reason.message);
+      return;
+    }
     setError("The performance request failed.");
   }
 
@@ -158,6 +239,7 @@ export function PerformancePage() {
     onSuccess: async (response) => {
       setCycleId(response.data.id);
       setActiveStep(1);
+      setPerformanceSection("hierarchy");
       setSuccess("Cycle saved. Add goals, KRAs, and KPIs next.");
       setError(undefined);
       await invalidatePerformance();
@@ -314,6 +396,49 @@ export function PerformancePage() {
     onSuccess: invalidatePerformance,
     onError: showError
   });
+  const applyTemplate = useMutation({
+    mutationFn: async (template: PerformanceTemplate) => {
+      if (!tenantId || !cycleId) {
+        throw new Error("Select a tenant and cycle before applying a KRA template.");
+      }
+      if (goals.data?.data.length) {
+        throw new Error("Apply templates to an empty cycle. Delete existing goals or create a new cycle first.");
+      }
+
+      for (const goalTemplate of template.goals) {
+        const goal = await performanceApi.createGoal({
+          tenantId,
+          cycleId,
+          name: goalTemplate.name,
+          description: goalTemplate.description,
+          weightage: goalTemplate.weightage
+        });
+
+        for (const kraTemplate of goalTemplate.kras) {
+          const kra = await performanceApi.createKra(goal.data.id, {
+            title: kraTemplate.title,
+            description: kraTemplate.description,
+            weightage: kraTemplate.weightage
+          });
+
+          for (const kpiTemplate of kraTemplate.kpis) {
+            await performanceApi.createKpi(kra.data.id, {
+              description: kpiTemplate.description,
+              targetValue: kpiTemplate.targetValue ?? null,
+              weightage: kpiTemplate.weightage
+            });
+          }
+        }
+      }
+    },
+    onSuccess: async (_response, template) => {
+      setSuccess(`${template.name} template applied.`);
+      setError(undefined);
+      setPerformanceSection("hierarchy");
+      await invalidatePerformance();
+    },
+    onError: showError
+  });
 
   const goalTotal = totalWeight(goals.data?.data ?? []);
   const hierarchyReady =
@@ -331,6 +456,99 @@ export function PerformancePage() {
     { label: "Reviews", value: dashboard.data?.data.reviews ?? 0, icon: Users },
     { label: "Avg score", value: dashboard.data?.data.averageFinalScore ?? "0", icon: BarChart3 }
   ];
+  const activeSectionMeta =
+    performanceSections.find((section) => section.id === activeSection) ??
+    performanceSections[0]!;
+
+  if (isSelfPerformanceOnly) {
+    const ownReviews = reviews.data?.data ?? [];
+    const completedReviews = ownReviews.filter((review) => review.finalScore);
+    const averageScore = completedReviews.length
+      ? (
+          completedReviews.reduce(
+            (sum, review) => sum + Number(review.finalScore ?? 0),
+            0
+          ) / completedReviews.length
+        ).toFixed(1)
+      : "0";
+
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-3xl font-semibold">My performance</h1>
+            <p className="text-muted-foreground">
+              View your assigned performance reviews and scores.
+            </p>
+          </div>
+          {canSwitchTenants ? (
+            <div className="flex min-w-72 flex-wrap gap-2">
+              <Select value={tenantId} onChange={(event) => setTenantId(event.target.value)}>
+                <option value="">Select tenant</option>
+                {tenantOptions.map((tenant) => (
+                  <option key={tenant.id} value={tenant.id}>
+                    {tenant.name} ({tenant.code})
+                  </option>
+                ))}
+              </Select>
+            </div>
+          ) : (
+            <div className="rounded-md border bg-secondary/40 px-3 py-2 text-sm font-medium">
+              {activeTenantLabel}
+            </div>
+          )}
+        </div>
+
+        {error ? <Alert variant="destructive">{error}</Alert> : null}
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card>
+            <CardContent className="flex items-center gap-4 p-5">
+              <span className="grid h-10 w-10 place-items-center rounded-lg bg-accent">
+                <FileCheck2 className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="text-sm text-muted-foreground">Reviews</p>
+                <p className="text-lg font-semibold">{ownReviews.length}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="flex items-center gap-4 p-5">
+              <span className="grid h-10 w-10 place-items-center rounded-lg bg-accent">
+                <CheckCircle2 className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="text-sm text-muted-foreground">Completed</p>
+                <p className="text-lg font-semibold">{completedReviews.length}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="flex items-center gap-4 p-5">
+              <span className="grid h-10 w-10 place-items-center rounded-lg bg-accent">
+                <BarChart3 className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="text-sm text-muted-foreground">Avg score</p>
+                <p className="text-lg font-semibold">{averageScore}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {reviews.isLoading ? (
+          <Card>
+            <CardContent className="p-6">
+              <LoaderCircle className="h-5 w-5 animate-spin" />
+            </CardContent>
+          </Card>
+        ) : (
+          <ReviewsTable reviews={ownReviews} />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -342,26 +560,34 @@ export function PerformancePage() {
           </p>
         </div>
         <div className="flex min-w-72 flex-wrap gap-2">
-          <Select
-            value={tenantId}
-            onChange={(event) => {
-              setTenantId(event.target.value);
-              setCycleId("");
-              setActiveStep(0);
-            }}
-          >
-            <option value="">Select tenant</option>
-            {tenantOptions.map((tenant) => (
-              <option key={tenant.id} value={tenant.id}>
-                {tenant.name} ({tenant.code})
-              </option>
-            ))}
-          </Select>
+          {canSwitchTenants ? (
+            <Select
+              value={tenantId}
+              onChange={(event) => {
+                setTenantId(event.target.value);
+                setCycleId("");
+                setActiveStep(0);
+                setPerformanceSection("setup");
+              }}
+            >
+              <option value="">Select tenant</option>
+              {tenantOptions.map((tenant) => (
+                <option key={tenant.id} value={tenant.id}>
+                  {tenant.name} ({tenant.code})
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <div className="rounded-md border bg-secondary/40 px-3 py-2 text-sm font-medium">
+              {activeTenantLabel}
+            </div>
+          )}
           <Select
             value={cycleId}
             onChange={(event) => {
               setCycleId(event.target.value);
               setActiveStep(event.target.value ? 1 : 0);
+              setPerformanceSection(event.target.value ? "hierarchy" : "setup");
             }}
           >
             <option value="">New cycle</option>
@@ -393,18 +619,57 @@ export function PerformancePage() {
         ))}
       </div>
 
+      <div className="grid gap-2 md:grid-cols-5">
+        {performanceSections.map(({ id, label, description, icon: Icon }) => {
+          const isActive = activeSection === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setPerformanceSection(id)}
+              className={cn(
+                "rounded-md border bg-white p-4 text-left transition hover:border-primary/30 hover:bg-accent/25",
+                isActive && "border-primary bg-primary text-white shadow-[0_12px_28px_rgba(14,22,63,0.14)]"
+              )}
+            >
+              <span
+                className={cn(
+                  "mb-3 grid h-9 w-9 place-items-center rounded-md bg-accent text-primary",
+                  isActive && "bg-white/15 text-white"
+                )}
+              >
+                <Icon className="h-4 w-4" />
+              </span>
+              <span className="block text-sm font-semibold">{label}</span>
+              <span className={cn("mt-1 block text-xs text-muted-foreground", isActive && "text-white/75")}>
+                {description}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       <Card>
         <CardHeader>
-          <CardTitle>Performance cycle setup</CardTitle>
-          <CardDescription>
-            Complete one step at a time. Goal and review forms appear only when
-            the previous step is ready.
-          </CardDescription>
+          <CardTitle>{activeSectionMeta.label}</CardTitle>
+          <CardDescription>{activeSectionMeta.description}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <Stepper activeStep={activeStep} setActiveStep={setActiveStep} cycleId={cycleId} />
+          {activeSection === "setup" || activeSection === "hierarchy" || activeSection === "assignments" ? (
+            <Stepper
+              activeStep={activeStep}
+              setActiveStep={(step) => {
+                setActiveStep(step);
+                setPerformanceSection(
+                  step === 0 ? "setup" : step === 1 ? "hierarchy" : "assignments"
+                );
+              }}
+              cycleId={cycleId}
+              hierarchyReady={hierarchyReady}
+            />
+          ) : null}
 
-          {activeStep === 0 ? (
+          {activeSection === "setup" ? (
             <CycleDetailsStep
               tenantId={tenantId}
               disabled={!canManagePerformance}
@@ -413,179 +678,288 @@ export function PerformancePage() {
             />
           ) : null}
 
-          {activeStep === 1 ? (
-            <GoalHierarchyStep
-              cycleId={cycleId}
-              tenantId={tenantId}
-              goals={goals.data?.data ?? []}
-              isLoading={goals.isLoading}
-              canManage={canManageGoals}
-              hierarchyReady={hierarchyReady}
-              goalTotal={goalTotal}
-              onAddGoal={(input) =>
-                createGoal.mutate({
-                  tenantId,
-                  cycleId,
-                  name: input.name,
-                  description: input.description || null,
-                  weightage: Number(input.weightage)
-                })
-              }
-              onUpdateGoal={(id, input) =>
-                updateGoal.mutate({
-                  id,
-                  input: {
+          {activeSection === "hierarchy" ? (
+            <>
+              <TemplateLibrary
+                templates={performanceTemplates}
+                disabled={!canManageGoals || !cycleId || Boolean(goals.data?.data.length)}
+                isApplying={applyTemplate.isPending}
+                onApply={(template) => applyTemplate.mutate(template)}
+              />
+              <GoalHierarchyStep
+                cycleId={cycleId}
+                tenantId={tenantId}
+                goals={goals.data?.data ?? []}
+                isLoading={goals.isLoading}
+                canManage={canManageGoals}
+                hierarchyReady={hierarchyReady}
+                goalTotal={goalTotal}
+                onAddGoal={(input) =>
+                  createGoal.mutate({
+                    tenantId,
+                    cycleId,
                     name: input.name,
                     description: input.description || null,
                     weightage: Number(input.weightage)
-                  }
-                })
-              }
-              onDeleteGoal={(id) => deleteGoal.mutate(id)}
-              onAddKra={(goalId, input) =>
-                createKra.mutate({
-                  goalId,
-                  input: {
-                    title: input.title,
-                    description: input.description || null,
-                    weightage: Number(input.weightage)
-                  }
-                })
-              }
-              onUpdateKra={(id, input) =>
-                updateKra.mutate({
-                  id,
-                  input: {
-                    title: input.title,
-                    description: input.description || null,
-                    weightage: Number(input.weightage)
-                  }
-                })
-              }
-              onDeleteKra={(id) => deleteKra.mutate(id)}
-              onAddKpi={(kraId, input) =>
-                createKpi.mutate({
-                  kraId,
-                  input: {
-                    description: input.description,
-                    targetValue: input.targetValue ? Number(input.targetValue) : null,
-                    weightage: Number(input.weightage)
-                  }
-                })
-              }
-              onUpdateKpi={(id, input) =>
-                updateKpi.mutate({
-                  id,
-                  input: {
-                    description: input.description,
-                    targetValue: input.targetValue ? Number(input.targetValue) : null,
-                    weightage: Number(input.weightage)
-                  }
-                })
-              }
-              onDeleteKpi={(id) => deleteKpi.mutate(id)}
-              onContinue={() => {
-                setSuccess(undefined);
-                setActiveStep(2);
-              }}
-            />
+                  })
+                }
+                onUpdateGoal={(id, input) =>
+                  updateGoal.mutate({
+                    id,
+                    input: {
+                      name: input.name,
+                      description: input.description || null,
+                      weightage: Number(input.weightage)
+                    }
+                  })
+                }
+                onDeleteGoal={(id) => deleteGoal.mutate(id)}
+                onAddKra={(goalId, input) =>
+                  createKra.mutate({
+                    goalId,
+                    input: {
+                      title: input.title,
+                      description: input.description || null,
+                      weightage: Number(input.weightage)
+                    }
+                  })
+                }
+                onUpdateKra={(id, input) =>
+                  updateKra.mutate({
+                    id,
+                    input: {
+                      title: input.title,
+                      description: input.description || null,
+                      weightage: Number(input.weightage)
+                    }
+                  })
+                }
+                onDeleteKra={(id) => deleteKra.mutate(id)}
+                onAddKpi={(kraId, input) =>
+                  createKpi.mutate({
+                    kraId,
+                    input: {
+                      description: input.description,
+                      targetValue: input.targetValue ? Number(input.targetValue) : null,
+                      weightage: Number(input.weightage)
+                    }
+                  })
+                }
+                onUpdateKpi={(id, input) =>
+                  updateKpi.mutate({
+                    id,
+                    input: {
+                      description: input.description,
+                      targetValue: input.targetValue ? Number(input.targetValue) : null,
+                      weightage: Number(input.weightage)
+                    }
+                  })
+                }
+                onDeleteKpi={(id) => deleteKpi.mutate(id)}
+                onContinue={() => {
+                  setSuccess(undefined);
+                  setActiveStep(2);
+                  setPerformanceSection("assignments");
+                }}
+              />
+            </>
           ) : null}
 
-          {activeStep === 2 ? (
-            <ReviewAssignmentStep
-              tenantId={tenantId}
-              cycleId={cycleId}
-              canReview={canReview}
-              isSaving={bulkCreateReviews.isPending}
-              onSubmit={(input) => bulkCreateReviews.mutate(input)}
-            />
-          ) : null}
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        <ReviewsTable reviews={reviews.data?.data ?? []} />
-        <AssessmentsCard
-          reviews={reviews.data?.data ?? []}
-          canReview={canReview}
-          selfPending={selfAssessment.isPending}
-          managerPending={managerAssessment.isPending}
-          onSelf={(id, input) => selfAssessment.mutate({ id, input })}
-          onManager={(id, input) => managerAssessment.mutate({ id, input })}
-        />
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Goal hierarchy</CardTitle>
-          <CardDescription>Weighted goal, KRA, and KPI structure.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {goals.isLoading ? (
-            <LoaderCircle className="h-5 w-5 animate-spin" />
-          ) : (
-            <div className="space-y-4">
-              {(goals.data?.data ?? []).map((goal) => (
-                <div key={goal.id} className="rounded-md border p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <p className="font-semibold">{goal.name}</p>
-                      <p className="text-sm text-muted-foreground">{goal.description}</p>
-                    </div>
-                    <Badge variant="secondary">{formatWeight(goal.weightage)}%</Badge>
-                  </div>
-                  <div className="mt-4 space-y-3">
-                    {goal.kras.map((kra) => (
-                      <div key={kra.id} className="border-l-2 pl-4">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-medium">{kra.title}</p>
-                          <Badge variant="outline">{formatWeight(kra.weightage)}%</Badge>
-                        </div>
-                        <div className="mt-2 space-y-2">
-                          {kra.kpis.map((kpi) => (
-                            <div
-                              key={kpi.id}
-                              className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/40 p-3 text-sm"
-                            >
-                              <span>{kpi.description}</span>
-                              <div className="flex items-center gap-2">
-                                <Badge variant="outline">{formatWeight(kpi.weightage)}%</Badge>
-                                {kpi.score ? <Badge variant="success">Score {kpi.score}</Badge> : null}
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  disabled={updateKpiProgress.isPending}
-                                  onClick={() =>
-                                    updateKpiProgress.mutate({
-                                      id: kpi.id,
-                                      input: {
-                                        actualValue: Number(kpi.targetValue ?? 0),
-                                        achievementPercentage: 100,
-                                        score: 5
-                                      }
-                                    })
-                                  }
-                                >
-                                  Mark met
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              {!goals.data?.data.length ? (
-                <p className="text-sm text-muted-foreground">
-                  Select or create a cycle, then add goals in the guided setup.
-                </p>
+          {activeSection === "assignments" ? (
+            <>
+              {!cycleId ? (
+                <Alert>Select or create a cycle before assigning assessments.</Alert>
               ) : null}
-            </div>
-          )}
+              {cycleId && !hierarchyReady ? (
+                <Alert>
+                  Complete goal, KRA, and KPI weightage totals to 100% before assigning
+                  performance assessments.
+                </Alert>
+              ) : null}
+              <ReviewAssignmentStep
+                tenantId={tenantId}
+                cycleId={cycleId}
+                canReview={canReview && hierarchyReady}
+                isSaving={bulkCreateReviews.isPending}
+                onSubmit={(input) => bulkCreateReviews.mutate(input)}
+              />
+            </>
+          ) : null}
+
+          {activeSection === "reviews" ? (
+            <ReviewsTable reviews={reviews.data?.data ?? []} />
+          ) : null}
+
+          {activeSection === "assessments" ? (
+            <AssessmentsCard
+              reviews={reviews.data?.data ?? []}
+              canReview={canReview}
+              selfPending={selfAssessment.isPending}
+              managerPending={managerAssessment.isPending}
+              onSelf={(id, input) => selfAssessment.mutate({ id, input })}
+              onManager={(id, input) => managerAssessment.mutate({ id, input })}
+            />
+          ) : null}
         </CardContent>
       </Card>
+
+      {activeSection === "hierarchy" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Goal hierarchy</CardTitle>
+            <CardDescription>Weighted goal, KRA, and KPI structure.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {goals.isLoading ? (
+              <LoaderCircle className="h-5 w-5 animate-spin" />
+            ) : (
+              <div className="space-y-4">
+                {(goals.data?.data ?? []).map((goal) => (
+                  <div key={goal.id} className="rounded-md border p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="font-semibold">{goal.name}</p>
+                        <p className="text-sm text-muted-foreground">{goal.description}</p>
+                      </div>
+                      <Badge variant="secondary">{formatWeight(goal.weightage)}%</Badge>
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      {goal.kras.map((kra) => (
+                        <div key={kra.id} className="border-l-2 pl-4">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-medium">{kra.title}</p>
+                            <Badge variant="outline">{formatWeight(kra.weightage)}%</Badge>
+                          </div>
+                          <div className="mt-2 space-y-2">
+                            {kra.kpis.map((kpi) => (
+                              <div
+                                key={kpi.id}
+                                className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/40 p-3 text-sm"
+                              >
+                                <span>{kpi.description}</span>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="outline">{formatWeight(kpi.weightage)}%</Badge>
+                                  {kpi.score ? <Badge variant="success">Score {kpi.score}</Badge> : null}
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={updateKpiProgress.isPending}
+                                    onClick={() =>
+                                      updateKpiProgress.mutate({
+                                        id: kpi.id,
+                                        input: {
+                                          actualValue: Number(kpi.targetValue ?? 0),
+                                          achievementPercentage: 100,
+                                          score: 5
+                                        }
+                                      })
+                                    }
+                                  >
+                                    Mark met
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {!goals.data?.data.length ? (
+                  <p className="text-sm text-muted-foreground">
+                    Select or create a cycle, then add goals in the guided setup.
+                  </p>
+                ) : null}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
+    </div>
+  );
+}
+
+function TemplateLibrary({
+  templates,
+  disabled,
+  isApplying,
+  onApply
+}: {
+  templates: PerformanceTemplate[];
+  disabled: boolean;
+  isApplying: boolean;
+  onApply: (template: PerformanceTemplate) => void;
+}) {
+  const [templateId, setTemplateId] = useState(templates[0]?.id ?? "");
+  const selectedTemplate =
+    templates.find((template) => template.id === templateId) ?? templates[0];
+
+  if (!selectedTemplate) return null;
+
+  const kraCount = selectedTemplate.goals.reduce(
+    (count, goal) => count + goal.kras.length,
+    0
+  );
+  const kpiCount = selectedTemplate.goals.reduce(
+    (count, goal) =>
+      count + goal.kras.reduce((kpiTotal, kra) => kpiTotal + kra.kpis.length, 0),
+    0
+  );
+
+  return (
+    <div className="rounded-md border bg-lime-50/40 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-semibold">Excel KRA templates</p>
+          <p className="text-sm text-muted-foreground">
+            Apply a role template from the uploaded workbook to quickly build an
+            accurate goal, KRA, and KPI hierarchy.
+          </p>
+        </div>
+        <Badge variant="secondary">{selectedTemplate.source}</Badge>
+      </div>
+      <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+        <Select value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
+          {templates.map((template) => (
+            <option key={template.id} value={template.id}>
+              {template.name}
+            </option>
+          ))}
+        </Select>
+        <Button
+          type="button"
+          disabled={disabled || isApplying}
+          onClick={() => onApply(selectedTemplate)}
+        >
+          {isApplying ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+          Apply template
+        </Button>
+      </div>
+      <div className="mt-3 grid gap-3 md:grid-cols-4">
+        <div className="rounded-md bg-white p-3">
+          <p className="text-xs text-muted-foreground">Role</p>
+          <p className="text-sm font-semibold">{selectedTemplate.role}</p>
+        </div>
+        <div className="rounded-md bg-white p-3">
+          <p className="text-xs text-muted-foreground">Goals</p>
+          <p className="text-sm font-semibold">{selectedTemplate.goals.length}</p>
+        </div>
+        <div className="rounded-md bg-white p-3">
+          <p className="text-xs text-muted-foreground">KRAs</p>
+          <p className="text-sm font-semibold">{kraCount}</p>
+        </div>
+        <div className="rounded-md bg-white p-3">
+          <p className="text-xs text-muted-foreground">KPIs</p>
+          <p className="text-sm font-semibold">{kpiCount}</p>
+        </div>
+      </div>
+      {disabled ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          Templates are available after selecting an empty cycle. Existing cycles
+          can still be managed manually below.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -593,16 +967,18 @@ export function PerformancePage() {
 function Stepper({
   activeStep,
   setActiveStep,
-  cycleId
+  cycleId,
+  hierarchyReady
 }: {
   activeStep: Step;
   setActiveStep: (step: Step) => void;
   cycleId: string;
+  hierarchyReady: boolean;
 }) {
   return (
     <div className="grid gap-3 md:grid-cols-3">
       {steps.map((step, index) => {
-        const disabled = index > 0 && !cycleId;
+        const disabled = (index > 0 && !cycleId) || (index === 2 && !hierarchyReady);
         const isActive = activeStep === index;
         return (
           <button
@@ -1158,7 +1534,8 @@ function ReviewAssignmentStep({
         tenantId,
         role: "manager",
         status: "ACTIVE",
-        search: managerSearch
+        search: managerSearch,
+        limit: 1000
       }),
     enabled: Boolean(tenantId)
   });
@@ -1179,7 +1556,7 @@ function ReviewAssignmentStep({
         organizationType: "team",
         departmentId
       }),
-    enabled: Boolean(tenantId)
+    enabled: Boolean(tenantId && departmentId)
   });
 
   const selectedEmployees = selectedEmployeeRecords.filter((employee) =>
@@ -1200,10 +1577,57 @@ function ReviewAssignmentStep({
 
   return (
     <form className="space-y-5" onSubmit={submit}>
-      {!cycleId ? <Alert>Select or create a cycle before assigning reviews.</Alert> : null}
+      {!cycleId ? <Alert>Select or create a cycle before assigning assessments.</Alert> : null}
+      <div className="grid gap-3 md:grid-cols-2">
+        <label className="space-y-1.5">
+          <span className="text-sm font-medium">1. Department scope</span>
+          <Select
+            value={departmentId}
+            onChange={(event) => {
+              setDepartmentId(event.target.value);
+              setTeamId("");
+            }}
+          >
+            <option value="">No department scope</option>
+            {departments.data?.data.map((department) => (
+              <option key={department.id} value={department.id}>
+                {department.name} ({department.code})
+              </option>
+            ))}
+          </Select>
+        </label>
+        <label className="space-y-1.5">
+          <span className="text-sm font-medium">Team scope</span>
+          <Select
+            value={teamId}
+            disabled={!departmentId}
+            onChange={(event) => setTeamId(event.target.value)}
+          >
+            <option value="">
+              {departmentId ? "No team scope" : "Select a department first"}
+            </option>
+            {teams.data?.data.map((team) => (
+              <option key={team.id} value={team.id}>
+                {team.name} ({team.code})
+              </option>
+            ))}
+          </Select>
+        </label>
+      </div>
+
       <div className="grid gap-4 lg:grid-cols-2">
         <SearchableUsers
-          title="Employees"
+          title="2. Manager reviewer"
+          search={managerSearch}
+          onSearch={setManagerSearch}
+          users={managers.data?.data ?? []}
+          selectedIds={managerUserId ? [managerUserId] : []}
+          onToggle={(id) => setManagerUserId(id === managerUserId ? "" : id)}
+          isLoading={managers.isLoading}
+          mode="single"
+        />
+        <SearchableUsers
+          title="3. Employees to assess"
           search={employeeSearch}
           onSearch={setEmployeeSearch}
           users={employees.data?.data ?? []}
@@ -1230,41 +1654,6 @@ function ReviewAssignmentStep({
           isLoading={employees.isLoading}
           mode="multiple"
         />
-        <SearchableUsers
-          title="Manager"
-          search={managerSearch}
-          onSearch={setManagerSearch}
-          users={managers.data?.data ?? []}
-          selectedIds={managerUserId ? [managerUserId] : []}
-          onToggle={(id) => setManagerUserId(id === managerUserId ? "" : id)}
-          isLoading={managers.isLoading}
-          mode="single"
-        />
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-2">
-        <label className="space-y-1.5">
-          <span className="text-sm font-medium">Department</span>
-          <Select value={departmentId} onChange={(event) => setDepartmentId(event.target.value)}>
-            <option value="">No department scope</option>
-            {departments.data?.data.map((department) => (
-              <option key={department.id} value={department.id}>
-                {department.name} ({department.code})
-              </option>
-            ))}
-          </Select>
-        </label>
-        <label className="space-y-1.5">
-          <span className="text-sm font-medium">Team</span>
-          <Select value={teamId} onChange={(event) => setTeamId(event.target.value)}>
-            <option value="">No team scope</option>
-            {teams.data?.data.map((team) => (
-              <option key={team.id} value={team.id}>
-                {team.name} ({team.code})
-              </option>
-            ))}
-          </Select>
-        </label>
       </div>
 
       <div className="rounded-md border">

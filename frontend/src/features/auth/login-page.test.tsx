@@ -1,18 +1,21 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useAuthStore } from "@/features/auth/auth.store";
 import type { CurrentUser } from "@/features/auth/auth.types";
 import { LoginPage } from "./login-page";
 
-const { loginMock, meMock } = vi.hoisted(() => ({
+const { loginMock, meMock, tenantsMock } = vi.hoisted(() => ({
   loginMock: vi.fn(),
-  meMock: vi.fn()
+  meMock: vi.fn(),
+  tenantsMock: vi.fn()
 }));
 
 vi.mock("@/features/auth/auth.api", () => ({
   authApi: {
+    tenants: tenantsMock,
     login: loginMock,
     me: meMock
   }
@@ -42,11 +45,34 @@ const platformUser: CurrentUser = {
   isSuperAdmin: true
 };
 
+function renderLoginPage() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } }
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={["/login"]}>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/app" element={<div>Dashboard loaded</div>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+}
+
 describe("login page flow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
     useAuthStore.getState().clear();
+    tenantsMock.mockResolvedValue([
+      {
+        id: "1ef8ccce-a823-4317-a387-93bbd4ef5004",
+        code: "venturesoft",
+        name: "VentureSoft.AI"
+      }
+    ]);
   });
 
   it("logs in with email and password and redirects to the app dashboard", async () => {
@@ -57,14 +83,7 @@ describe("login page flow", () => {
     });
     meMock.mockResolvedValue(platformUser);
 
-    render(
-      <MemoryRouter initialEntries={["/login"]}>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/app" element={<div>Dashboard loaded</div>} />
-        </Routes>
-      </MemoryRouter>
-    );
+    renderLoginPage();
 
     fireEvent.click(screen.getByRole("button", { name: "Platform" }));
     fireEvent.change(screen.getByLabelText("Email"), {
@@ -103,14 +122,11 @@ describe("login page flow", () => {
       permissions: ["self.profile.read"]
     });
 
-    render(
-      <MemoryRouter initialEntries={["/login"]}>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/app" element={<div>Dashboard loaded</div>} />
-        </Routes>
-      </MemoryRouter>
-    );
+    renderLoginPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: "VentureSoft.AI (venturesoft)" })).toBeTruthy();
+    });
 
     fireEvent.change(screen.getByLabelText("Organization"), {
       target: { value: "venturesoft" }

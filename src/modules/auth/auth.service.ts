@@ -29,6 +29,22 @@ const dummyPasswordHash = cryptoService.hashPassword(
 );
 
 export class AuthService {
+  async listLoginTenants() {
+    return prisma.tenant.findMany({
+      where: {
+        status: "ACTIVE",
+        deletedAt: null,
+        NOT: { code: { equals: "platform", mode: "insensitive" } }
+      },
+      orderBy: [{ name: "asc" }, { id: "asc" }],
+      select: {
+        id: true,
+        code: true,
+        name: true
+      }
+    });
+  }
+
   async login(
     input: LoginInput,
     client: ClientMetadata,

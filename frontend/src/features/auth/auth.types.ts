@@ -4,6 +4,12 @@ export interface AuthTokens {
   expiresIn: number;
 }
 
+export interface LoginTenant {
+  id: string;
+  code: string;
+  name: string;
+}
+
 export interface RoleAssignment {
   organizationId: string | null;
   organization?: { id: string; code: string; name: string } | null;
