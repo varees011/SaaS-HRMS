@@ -123,7 +123,7 @@ export function AppLayout() {
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-30 flex h-16 items-center border-b bg-background/95 px-4 backdrop-blur md:hidden">
+      <header className="sticky top-0 z-30 flex h-16 items-center border-b border-primary/10 bg-background/90 px-4 backdrop-blur md:hidden">
         <Button
           size="icon"
           variant="ghost"
@@ -132,18 +132,24 @@ export function AppLayout() {
         >
           <Menu className="h-5 w-5" />
         </Button>
-        <span className="ml-3 font-semibold">VentureSoft HRMS</span>
+        <span className="ml-3 font-semibold text-primary">VentureSoft HRMS</span>
       </header>
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-40 w-64 border-r bg-slate-950 text-white transition-transform md:translate-x-0",
+          "fixed inset-y-0 left-0 z-40 w-72 border-r border-primary/10 bg-primary text-primary-foreground transition-transform md:translate-x-0",
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        <div className="flex h-16 items-center border-b border-white/10 px-5 font-semibold">
-          VentureSoft HRMS
+        <div className="flex h-20 items-center gap-3 border-b border-primary-foreground/10 px-5">
+          <span className="grid h-11 w-11 place-items-center rounded-md bg-accent text-primary shadow-[inset_0_-6px_0_rgba(20,61,45,0.12)]">
+            <ClipboardCheck className="h-5 w-5" />
+          </span>
+          <div>
+            <p className="font-semibold leading-tight">VentureSoft HRMS</p>
+            <p className="utility-label text-primary-foreground/60">Performance ledger</p>
+          </div>
         </div>
-        <nav className="space-y-1 p-3">
+        <nav className="review-rail space-y-1 p-4">
           {links.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
@@ -152,31 +158,34 @@ export function AppLayout() {
               onClick={() => setMobileOpen(false)}
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2.5 text-sm text-slate-300 hover:bg-white/10 hover:text-white",
-                  isActive && "bg-primary text-white"
+                  "relative ml-1 flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium text-primary-foreground/75 hover:bg-primary-foreground/10 hover:text-primary-foreground",
+                  isActive &&
+                    "bg-accent text-primary shadow-[0_12px_28px_rgba(0,0,0,0.15)]"
                 )
               }
             >
-              <Icon className="h-4 w-4" />
+              <span className="grid h-8 w-8 place-items-center rounded-full bg-primary-foreground/10">
+                <Icon className="h-4 w-4" />
+              </span>
               {label}
             </NavLink>
           ))}
         </nav>
-        <div className="absolute inset-x-0 bottom-0 border-t border-white/10 p-4">
+        <div className="absolute inset-x-0 bottom-0 border-t border-primary-foreground/10 p-4">
           <div className="mb-4 flex items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-full bg-sky-200 text-sm font-semibold text-slate-900">
+            <div className="grid h-10 w-10 place-items-center rounded-md bg-accent text-sm font-semibold text-primary">
               {initials(user.firstName, user.lastName)}
             </div>
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">
                 {user.firstName} {user.lastName}
               </p>
-              <p className="truncate text-xs text-slate-400">{user.email}</p>
+              <p className="truncate text-xs text-primary-foreground/60">{user.email}</p>
             </div>
           </div>
           <Button
             variant="ghost"
-            className="w-full justify-start text-slate-300 hover:bg-white/10 hover:text-white"
+            className="w-full justify-start text-primary-foreground/75 hover:bg-primary-foreground/10 hover:text-primary-foreground"
             onClick={logout}
           >
             <LogOut className="h-4 w-4" />
@@ -191,7 +200,16 @@ export function AppLayout() {
           onClick={() => setMobileOpen(false)}
         />
       ) : null}
-      <main className="md:pl-64">
+      <main className="md:pl-72">
+        <div className="border-b border-primary/10 bg-card/55 px-5 py-3 backdrop-blur sm:px-8">
+          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
+            <p className="utility-label">Secure workspace</p>
+            <div className="flex items-center gap-2 rounded-full border border-primary/10 bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground">
+              <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+              Tenant-aware access active
+            </div>
+          </div>
+        </div>
         <div className="mx-auto max-w-7xl p-5 sm:p-8">
           <Outlet />
         </div>

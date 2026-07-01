@@ -12,10 +12,11 @@ export function Alert({
     <div
       role="alert"
       className={cn(
-        "rounded-md border p-3 text-sm",
+        "rounded-md border border-primary/15 bg-card/90 p-3 text-sm shadow-sm",
         variant === "destructive" &&
           "border-destructive/30 bg-destructive/10 text-destructive",
-        variant === "success" && "border-emerald-200 bg-emerald-50 text-emerald-800",
+        variant === "success" &&
+          "border-emerald-200 bg-emerald-50 text-emerald-900",
         className
       )}
       {...props}

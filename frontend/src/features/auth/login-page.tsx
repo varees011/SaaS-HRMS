@@ -74,18 +74,19 @@ export function LoginPage() {
   }
 
   return (
-    <Card className="border-0 shadow-xl shadow-slate-200/60 sm:border">
+    <Card className="border-primary/10 shadow-[0_28px_70px_rgba(18,32,23,0.12)]">
       <CardHeader>
-        <CardTitle className="text-2xl">Sign in</CardTitle>
+        <p className="utility-label">Access checkpoint</p>
+        <CardTitle className="text-3xl">Sign in to the ledger</CardTitle>
         <CardDescription>
-          Use platform access or sign in within your organization.
+          Choose platform access or enter through your organization workspace.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form className="space-y-5" onSubmit={form.handleSubmit(submit)}>
           {serverError ? <Alert variant="destructive">{serverError}</Alert> : null}
           <input type="hidden" {...form.register("mode")} />
-          <div className="grid grid-cols-2 gap-2 rounded-md border bg-muted/30 p-1">
+          <div className="grid grid-cols-2 gap-2 rounded-md border border-primary/10 bg-secondary/40 p-1">
             <Button
               type="button"
               variant={mode === "organization" ? "default" : "ghost"}
@@ -183,7 +184,7 @@ export function LoginPage() {
           </Button>
           <div className="text-center text-sm">
             <Link className="text-primary hover:underline" to="/forgot-password">
-              Forgot your password?
+              Reset access
             </Link>
           </div>
         </form>

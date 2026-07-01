@@ -1,27 +1,29 @@
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,600..800,35..75&family=IBM+Plex+Mono:wght@500;600&family=Inter:wght@400;500;600;700;800&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    --background: 210 40% 98%;
-    --foreground: 222 47% 11%;
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-    --primary: 215 82% 42%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 214 32% 91%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 214 32% 91%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 199 89% 94%;
-    --accent-foreground: 201 96% 32%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214 32% 87%;
-    --input: 214 32% 87%;
-    --ring: 215 82% 42%;
-    --radius: 0.75rem;
+    --background: 96 33% 96%;
+    --foreground: 142 25% 9%;
+    --card: 90 40% 98%;
+    --card-foreground: 142 25% 9%;
+    --primary: 153 45% 20%;
+    --primary-foreground: 93 83% 89%;
+    --secondary: 93 59% 86%;
+    --secondary-foreground: 148 40% 16%;
+    --muted: 98 24% 90%;
+    --muted-foreground: 144 13% 37%;
+    --accent: 73 91% 68%;
+    --accent-foreground: 145 41% 13%;
+    --destructive: 354 70% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 108 18% 78%;
+    --input: 108 18% 78%;
+    --ring: 73 91% 43%;
+    --radius: 0.5rem;
   }
 
   * {
@@ -30,14 +32,63 @@
 
   body {
     @apply min-h-screen bg-background text-foreground antialiased;
+    background:
+      radial-gradient(circle at 18% 8%, rgba(216, 243, 106, 0.24), transparent 28rem),
+      radial-gradient(circle at 92% 0%, rgba(189, 238, 255, 0.28), transparent 26rem),
+      linear-gradient(135deg, rgba(24, 57, 43, 0.035) 25%, transparent 25%) 0 0 / 24px 24px,
+      hsl(var(--background));
     font-family:
       Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
       "Segoe UI", sans-serif;
   }
 
+  h1,
+  h2 {
+    font-family: Fraunces, Georgia, serif;
+    font-variation-settings: "SOFT" 62;
+    letter-spacing: -0.01em;
+  }
+
   button,
   a,
-  input {
-    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2;
+  input,
+  select,
+  textarea {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+  }
+}
+
+@layer components {
+  .utility-label {
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    @apply text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-muted-foreground;
+  }
+
+  .review-rail {
+    @apply relative;
+  }
+
+  .review-rail::before {
+    content: "";
+    @apply absolute bottom-0 top-0 w-px bg-primary/20;
+    left: 1.125rem;
+  }
+
+  .review-node {
+    @apply relative grid h-9 w-9 place-items-center rounded-full border bg-card text-primary shadow-sm;
+  }
+
+  .review-node::after {
+    content: "";
+    @apply absolute h-2 w-2 rounded-full bg-accent;
+    right: -0.2rem;
+    top: 0.2rem;
+  }
+
+  .ledger-surface {
+    background:
+      linear-gradient(90deg, rgba(20, 61, 45, 0.08) 1px, transparent 1px) 0 0 / 36px 36px,
+      linear-gradient(0deg, rgba(20, 61, 45, 0.08) 1px, transparent 1px) 0 0 / 36px 36px,
+      hsl(var(--card));
   }
 }
