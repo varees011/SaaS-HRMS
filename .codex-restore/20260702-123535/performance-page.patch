@@ -1,0 +1,230 @@
+diff --git a/frontend/src/features/performance/performance-page.tsx b/frontend/src/features/performance/performance-page.tsx
+index 890d234..43b7809 100644
+--- a/frontend/src/features/performance/performance-page.tsx
++++ b/frontend/src/features/performance/performance-page.tsx
+@@ -1508,33 +1508,34 @@ function ReviewAssignmentStep({
+     organizationId?: string | null;
+   }) => void;
+ }) {
+-  const [employeeSearch, setEmployeeSearch] = useState("");
+-  const [managerSearch, setManagerSearch] = useState("");
+   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<string[]>([]);
+   const [selectedEmployeeRecords, setSelectedEmployeeRecords] = useState<AdminUser[]>([]);
+   const [managerUserId, setManagerUserId] = useState("");
++  const [employeeToAddId, setEmployeeToAddId] = useState("");
+   const [departmentId, setDepartmentId] = useState("");
+   const [teamId, setTeamId] = useState("");
++  const selectedScopeId = teamId || departmentId;
+ 
+   const employees = useQuery({
+-    queryKey: ["admin", "users", "employees", tenantId, employeeSearch],
++    queryKey: ["admin", "users", "employees", tenantId, selectedScopeId],
+     queryFn: () =>
+       adminApi.listUsers({
+         tenantId,
++        ...(selectedScopeId ? { departmentId: selectedScopeId } : {}),
+         role: "employee",
+         status: "ACTIVE",
+-        search: employeeSearch
++        limit: 1000
+       }),
+     enabled: Boolean(tenantId)
+   });
+   const managers = useQuery({
+-    queryKey: ["admin", "users", "managers", tenantId, managerSearch],
++    queryKey: ["admin", "users", "managers", tenantId, selectedScopeId],
+     queryFn: () =>
+       adminApi.listUsers({
+         tenantId,
++        ...(selectedScopeId ? { departmentId: selectedScopeId } : {}),
+         role: "manager",
+         status: "ACTIVE",
+-        search: managerSearch,
+         limit: 1000
+       }),
+     enabled: Boolean(tenantId)
+@@ -1555,13 +1556,35 @@ function ReviewAssignmentStep({
+         tenantId,
+         organizationType: "team",
+         departmentId
+-      }),
++    }),
+     enabled: Boolean(tenantId && departmentId)
+   });
+ 
++  useEffect(() => {
++    setManagerUserId("");
++    setEmployeeToAddId("");
++    setSelectedEmployeeIds([]);
++    setSelectedEmployeeRecords([]);
++  }, [selectedScopeId]);
++
+   const selectedEmployees = selectedEmployeeRecords.filter((employee) =>
+     selectedEmployeeIds.includes(employee.id)
+   );
++  const availableEmployees =
++    employees.data?.data.filter((employee) => !selectedEmployeeIds.includes(employee.id)) ??
++    [];
++
++  function addEmployee(employeeId: string) {
++    const employee = employees.data?.data.find((item) => item.id === employeeId);
++    if (!employee) return;
++    setSelectedEmployeeIds((current) =>
++      current.includes(employee.id) ? current : [...current, employee.id]
++    );
++    setSelectedEmployeeRecords((records) =>
++      records.some((item) => item.id === employee.id) ? records : [...records, employee]
++    );
++    setEmployeeToAddId("");
++  }
+ 
+   function submit(event: FormEvent<HTMLFormElement>) {
+     event.preventDefault();
+@@ -1616,43 +1639,23 @@ function ReviewAssignmentStep({
+       </div>
+ 
+       <div className="grid gap-4 lg:grid-cols-2">
+-        <SearchableUsers
++        <UserDropdown
+           title="2. Manager reviewer"
+-          search={managerSearch}
+-          onSearch={setManagerSearch}
++          placeholder="Select manager reviewer"
+           users={managers.data?.data ?? []}
+-          selectedIds={managerUserId ? [managerUserId] : []}
+-          onToggle={(id) => setManagerUserId(id === managerUserId ? "" : id)}
++          value={managerUserId}
++          onChange={setManagerUserId}
+           isLoading={managers.isLoading}
+-          mode="single"
++          emptyMessage="No active managers found for this scope."
+         />
+-        <SearchableUsers
++        <UserDropdown
+           title="3. Employees to assess"
+-          search={employeeSearch}
+-          onSearch={setEmployeeSearch}
+-          users={employees.data?.data ?? []}
+-          selectedIds={selectedEmployeeIds}
+-          onToggle={(id) => {
+-            const employee = employees.data?.data.find((item) => item.id === id);
+-            setSelectedEmployeeIds((current) => {
+-              if (current.includes(id)) {
+-                setSelectedEmployeeRecords((records) =>
+-                  records.filter((item) => item.id !== id)
+-                );
+-                return current.filter((item) => item !== id);
+-              }
+-              if (employee) {
+-                setSelectedEmployeeRecords((records) =>
+-                  records.some((item) => item.id === id)
+-                    ? records
+-                    : [...records, employee]
+-                );
+-              }
+-              return [...current, id];
+-            });
+-          }}
++          placeholder="Select employee to add"
++          users={availableEmployees}
++          value={employeeToAddId}
++          onChange={addEmployee}
+           isLoading={employees.isLoading}
+-          mode="multiple"
++          emptyMessage="No active employees found for this scope."
+         />
+       </div>
+ 
+@@ -1710,24 +1713,22 @@ function ReviewAssignmentStep({
+   );
+ }
+ 
+-function SearchableUsers({
++function UserDropdown({
+   title,
+-  search,
+-  onSearch,
++  placeholder,
+   users,
+-  selectedIds,
+-  onToggle,
++  value,
++  onChange,
+   isLoading,
+-  mode
++  emptyMessage
+ }: {
+   title: string;
+-  search: string;
+-  onSearch: (value: string) => void;
++  placeholder: string;
+   users: AdminUser[];
+-  selectedIds: string[];
+-  onToggle: (id: string) => void;
++  value: string;
++  onChange: (id: string) => void;
+   isLoading: boolean;
+-  mode: "single" | "multiple";
++  emptyMessage: string;
+ }) {
+   return (
+     <div className="rounded-md border p-3">
+@@ -1735,41 +1736,23 @@ function SearchableUsers({
+         <p className="text-sm font-semibold">{title}</p>
+         {isLoading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+       </div>
+-      <Input
+-        value={search}
+-        onChange={(event) => onSearch(event.target.value)}
+-        placeholder={`Search ${title.toLowerCase()} by name, email, or role`}
+-      />
+-      <div className="mt-3 max-h-72 space-y-2 overflow-auto">
+-        {users.map((item) => {
+-          const checked = selectedIds.includes(item.id);
+-          return (
+-            <label
+-              key={item.id}
+-              className={cn(
+-                "flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm",
+-                checked && "border-primary bg-primary/5"
+-              )}
+-            >
+-              <input
+-                type={mode === "multiple" ? "checkbox" : "radio"}
+-                className="mt-1"
+-                checked={checked}
+-                onChange={() => onToggle(item.id)}
+-              />
+-              <span>
+-                <span className="block font-medium">{userLabel(item)}</span>
+-                <span className="block text-muted-foreground">{userMeta(item)}</span>
+-              </span>
+-            </label>
+-          );
+-        })}
+-        {!users.length && !isLoading ? (
+-          <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+-            No matching users found.
+-          </p>
+-        ) : null}
+-      </div>
++      <Select
++        value={value}
++        disabled={isLoading || !users.length}
++        onChange={(event) => onChange(event.target.value)}
++      >
++        <option value="">{isLoading ? "Loading users..." : placeholder}</option>
++        {users.map((item) => (
++          <option key={item.id} value={item.id}>
++            {userLabel(item)} - {userMeta(item)}
++          </option>
++        ))}
++      </Select>
++      {!users.length && !isLoading ? (
++        <p className="mt-3 rounded-md border border-dashed p-4 text-sm text-muted-foreground">
++          {emptyMessage}
++        </p>
++      ) : null}
+     </div>
+   );
+ }

@@ -120,6 +120,7 @@ model Tenant {
   organizations       Organization[]
   sessions            AuthSession[]
   passwordResetTokens PasswordResetToken[]
+  loginOtps           LoginOtp[]
   auditEvents         AuditEvent[]
   hrmsRecords         HrmsRecord[]
   reviewCycles        PerformanceReviewCycle[]
@@ -160,6 +161,7 @@ model User {
   assignedRoles         RoleAssignment[]      @relation("RoleAssigner")
   sessions              AuthSession[]
   passwordResetTokens   PasswordResetToken[]
+  loginOtps             LoginOtp[]
   auditEvents           AuditEvent[]          @relation("AuditActor")
   effectiveAuditEvents  AuditEvent[]          @relation("AuditEffectiveUser")
   managedOrganizations  Organization[]        @relation("OrganizationManager")
@@ -593,6 +595,28 @@ model PasswordResetToken {
 
   @@index([userId, expiresAt])
   @@map("password_reset_tokens")
+}
+
+model LoginOtp {
+  id                    String    @id @default(uuid()) @db.Uuid
+  tenantId              String?   @map("tenant_id") @db.Uuid
+  userId                String    @map("user_id") @db.Uuid
+  otpHash               String    @map("otp_hash") @db.Char(64)
+  authenticationMethods String[]  @default(["pwd"]) @map("authentication_methods")
+  attemptCount          Int       @default(0) @map("attempt_count")
+  generationCount       Int       @default(1) @map("generation_count")
+  used                  Boolean   @default(false) @map("used_flag")
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSentAt            DateTime  @default(now()) @map("last_sent_at") @db.Timestamptz(6)
+  expiresAt             DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt                DateTime? @map("used_at") @db.Timestamptz(6)
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+  user   User    @relation(fields: [userId], references: [id])
+
+  @@index([userId, tenantId, used, expiresAt])
+  @@index([createdAt])
+  @@map("login_otps")
 }
 
 model AuditEvent {

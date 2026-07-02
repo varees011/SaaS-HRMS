@@ -7,6 +7,8 @@ import {
 import {
   changePasswordSchema,
   disableMfaSchema,
+  emailOtpResendSchema,
+  emailOtpVerifySchema,
   forgotPasswordSchema,
   loginSchema,
   logoutSchema,
@@ -30,6 +32,18 @@ authRouter.post(
   authRateLimit,
   validate({ body: loginSchema }),
   authController.login.bind(authController)
+);
+authRouter.post(
+  "/otp/verify",
+  authRateLimit,
+  validate({ body: emailOtpVerifySchema }),
+  authController.verifyEmailOtp.bind(authController)
+);
+authRouter.post(
+  "/otp/resend",
+  authRateLimit,
+  validate({ body: emailOtpResendSchema }),
+  authController.resendEmailOtp.bind(authController)
 );
 authRouter.post(
   "/refresh",

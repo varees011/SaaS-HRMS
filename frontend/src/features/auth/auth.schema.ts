@@ -20,13 +20,6 @@ export const loginSchema = z.object({
       message: "Enter a 6-digit code."
     })
 }).superRefine((value, context) => {
-  if (value.mode === "organization" && !value.tenant.trim()) {
-    context.addIssue({
-      code: "custom",
-      path: ["tenant"],
-      message: "Organization is required for organization users."
-    });
-  }
   if (value.mode === "platform" && !z.string().email().safeParse(value.login).success) {
     context.addIssue({
       code: "custom",

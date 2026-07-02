@@ -11,13 +11,33 @@ export class AuthController {
   }
 
   async login(req: Request, res: Response): Promise<void> {
-    const tokens = await authService.login(
+    const result = await authService.login(
+      req.body,
+      clientMetadata(req),
+      req.context
+    );
+    if (result.otpRequired) {
+      res.status(200).json({ data: result });
+      return;
+    }
+    const tokens = result.tokens;
+    setRefreshCookie(res, tokens.refreshToken);
+    res.status(200).json({ data: publicTokens(tokens) });
+  }
+
+  async verifyEmailOtp(req: Request, res: Response): Promise<void> {
+    const tokens = await authService.verifyEmailOtp(
       req.body,
       clientMetadata(req),
       req.context
     );
     setRefreshCookie(res, tokens.refreshToken);
     res.status(200).json({ data: publicTokens(tokens) });
+  }
+
+  async resendEmailOtp(req: Request, res: Response): Promise<void> {
+    const result = await authService.resendEmailOtp(req.body, req.context);
+    res.status(200).json({ data: result });
   }
 
   async refresh(req: Request, res: Response): Promise<void> {

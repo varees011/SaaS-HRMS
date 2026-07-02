@@ -1,0 +1,478 @@
+diff --git a/frontend/src/features/admin/admin.api.ts b/frontend/src/features/admin/admin.api.ts
+index 347f98e..54d12a4 100644
+--- a/frontend/src/features/admin/admin.api.ts
++++ b/frontend/src/features/admin/admin.api.ts
+@@ -96,6 +96,7 @@ export const adminApi = {
+   },
+   createRole(input: {
+     tenantId: string;
++    departmentId?: string | null;
+     code: string;
+     name: string;
+     description?: string | null;
+@@ -108,6 +109,7 @@ export const adminApi = {
+     });
+   },
+   updateRole(id: string, input: {
++    departmentId?: string | null;
+     name?: string;
+     description?: string | null;
+     roleType?: string;
+diff --git a/frontend/src/features/admin/roles-page.tsx b/frontend/src/features/admin/roles-page.tsx
+index d374ee3..337e578 100644
+--- a/frontend/src/features/admin/roles-page.tsx
++++ b/frontend/src/features/admin/roles-page.tsx
+@@ -42,6 +42,8 @@ export function RolesPage() {
+   const [tenantId, setTenantId] = useState(isPlatformAdmin ? "" : fixedTenantId);
+   const [open, setOpen] = useState(false);
+   const [editing, setEditing] = useState<AdminRole | null>(null);
++  const [draftRoleType, setDraftRoleType] =
++    useState<(typeof roleTypes)[number]>("ORGANIZATION");
+   const [error, setError] = useState<string>();
+   const queryClient = useQueryClient();
+   const tenants = useQuery({
+@@ -58,6 +60,16 @@ export function RolesPage() {
+     queryKey: ["admin", "permissions"],
+     queryFn: () => adminApi.listPermissions()
+   });
++  const organizations = useQuery({
++    queryKey: ["admin", "role-organizations", tenantId],
++    queryFn: () =>
++      adminApi.listOrganizations({
++        tenantId,
++        organizationType: "department",
++        limit: 1000
++      }),
++    enabled: Boolean(tenantId)
++  });
+ 
+   useEffect(() => {
+     if (!isPlatformAdmin) {
+@@ -97,6 +109,7 @@ export function RolesPage() {
+       input: {
+         name: string;
+         description?: string | null;
++        departmentId?: string | null;
+         roleType: string;
+         permissionIds: string[];
+       };
+@@ -141,6 +154,7 @@ export function RolesPage() {
+       name: String(form.get("name")),
+       description: String(form.get("description") || "") || null,
+       roleType: String(form.get("roleType")),
++      departmentId: String(form.get("departmentId") || "") || null,
+       permissionIds
+     };
+     if (editing) {
+@@ -157,12 +171,14 @@ export function RolesPage() {
+   function openCreate() {
+     setError(undefined);
+     setEditing(null);
++    setDraftRoleType("ORGANIZATION");
+     setOpen(true);
+   }
+ 
+   function openEdit(role: AdminRole) {
+     setError(undefined);
+     setEditing(role);
++    setDraftRoleType(role.roleType as (typeof roleTypes)[number]);
+     setOpen(true);
+   }
+ 
+@@ -222,6 +238,7 @@ export function RolesPage() {
+                 <TableRow>
+                   <TableHead>Role</TableHead>
+                   <TableHead>Type</TableHead>
++                  <TableHead>Organization</TableHead>
+                   <TableHead>Permissions</TableHead>
+                   <TableHead>System</TableHead>
+                   <TableHead>Actions</TableHead>
+@@ -240,6 +257,7 @@ export function RolesPage() {
+                       </div>
+                     </TableCell>
+                     <TableCell>{role.roleType}</TableCell>
++                    <TableCell>{role.department?.name ?? "-"}</TableCell>
+                     <TableCell>{role.permissions.length}</TableCell>
+                     <TableCell>
+                       <Badge variant={role.isSystemRole ? "secondary" : "outline"}>
+@@ -248,7 +266,12 @@ export function RolesPage() {
+                     </TableCell>
+                     <TableCell>
+                       <div className="flex gap-1">
+-                        <Button size="icon" variant="ghost" onClick={() => openEdit(role)}>
++                        <Button
++                          size="icon"
++                          variant="ghost"
++                          disabled={role.isSystemRole}
++                          onClick={() => openEdit(role)}
++                        >
+                           <Pencil className="h-4 w-4" />
+                         </Button>
+                         <Button
+@@ -297,13 +320,39 @@ export function RolesPage() {
+               placeholder="Description"
+               defaultValue={editing?.description ?? ""}
+             />
+-            <Select name="roleType" defaultValue={editing?.roleType ?? "ORGANIZATION"}>
+-              {roleTypes.map((roleType) => (
+-                <option key={roleType} value={roleType}>
+-                  {roleType}
++            {isPlatformAdmin ? (
++              <Select
++                name="roleType"
++                value={draftRoleType}
++                onChange={(event) =>
++                  setDraftRoleType(event.target.value as (typeof roleTypes)[number])
++                }
++              >
++                {roleTypes.map((roleType) => (
++                  <option key={roleType} value={roleType}>
++                    {roleType}
++                  </option>
++                ))}
++              </Select>
++            ) : (
++              <input type="hidden" name="roleType" value="ORGANIZATION" />
++            )}
++            {draftRoleType === "ORGANIZATION" || draftRoleType === "MANAGER" || !isPlatformAdmin ? (
++              <Select
++                name="departmentId"
++                defaultValue={editing?.departmentId ?? ""}
++                required
++              >
++                <option value="" disabled>
++                  Select organization
+                 </option>
+-              ))}
+-            </Select>
++                {organizations.data?.data.map((organization) => (
++                  <option key={organization.id} value={organization.id}>
++                    {organization.name}
++                  </option>
++                ))}
++              </Select>
++            ) : null}
+             <div className="max-h-80 space-y-4 overflow-auto rounded-md border p-3">
+               {groupedPermissions.map(([module, items]) => (
+                 <div key={module}>
+diff --git a/package.json b/package.json
+index f11aae3..980721d 100644
+--- a/package.json
++++ b/package.json
+@@ -16,6 +16,7 @@
+     "seed:super-admin": "tsx prisma/seed.ts",
+     "test": "vitest run",
+     "typecheck": "tsc -p tsconfig.json --noEmit",
++    "verify": "pnpm typecheck && pnpm test && pnpm --dir frontend typecheck && pnpm build && pnpm frontend:build",
+     "frontend:dev": "pnpm --dir frontend dev",
+     "frontend:build": "pnpm --dir frontend build",
+     "frontend:test": "pnpm --dir frontend test"
+diff --git a/src/modules/admin/admin.schema.ts b/src/modules/admin/admin.schema.ts
+index 4e94186..d372ccf 100644
+--- a/src/modules/admin/admin.schema.ts
++++ b/src/modules/admin/admin.schema.ts
+@@ -102,6 +102,7 @@ export const updateUserSchema = z
+ 
+ export const createRoleSchema = z.object({
+   tenantId: uuid,
++  departmentId: uuid.nullable().optional(),
+   code: z.string().trim().min(2).max(80).regex(/^[A-Z0-9_]+$/),
+   name: z.string().trim().min(2).max(100),
+   description: z.string().trim().max(1000).nullable().optional(),
+@@ -111,6 +112,7 @@ export const createRoleSchema = z.object({
+ 
+ export const updateRoleSchema = z
+   .object({
++    departmentId: uuid.nullable().optional(),
+     name: z.string().trim().min(2).max(100).optional(),
+     description: z.string().trim().max(1000).nullable().optional(),
+     roleType: z.enum(["TENANT", "ORGANIZATION", "MANAGER", "SELF"]).optional(),
+diff --git a/src/modules/admin/admin.service.ts b/src/modules/admin/admin.service.ts
+index 72d02ef..9db4bab 100644
+--- a/src/modules/admin/admin.service.ts
++++ b/src/modules/admin/admin.service.ts
+@@ -596,6 +596,7 @@ export class AdminService {
+   async createRole(
+     data: {
+       tenantId: string;
++      departmentId?: string | null;
+       code: string;
+       name: string;
+       description?: string | null;
+@@ -606,11 +607,16 @@ export class AdminService {
+     context: RequestContext
+   ) {
+     const tenantId = resolveRequiredTenant(actor, data.tenantId);
++    await assertRoleMutationAllowed(prisma, actor, tenantId, {
++      roleType: data.roleType,
++      departmentId: data.departmentId ?? null
++    });
+     await this.validatePermissionIds(data.permissionIds);
+     return prisma.$transaction(async (tx) => {
+       const role = await tx.role.create({
+         data: {
+           tenantId,
++          departmentId: data.departmentId ?? null,
+           code: data.code,
+           name: data.name,
+           description: data.description ?? null,
+@@ -639,6 +645,7 @@ export class AdminService {
+   async updateRole(
+     id: string,
+     data: {
++      departmentId?: string | null;
+       name?: string;
+       description?: string | null;
+       roleType?: "TENANT" | "ORGANIZATION" | "MANAGER" | "SELF";
+@@ -657,11 +664,31 @@ export class AdminService {
+       }
+     });
+     if (!existing) throw new NotFoundError("Role");
++    if (existing.isSystemRole) {
++      throw new ConflictError(
++        "SYSTEM_ROLE_LOCKED",
++        "Default system roles cannot be changed."
++      );
++    }
++    if (!existing.tenantId) {
++      throw new ConflictError(
++        "PLATFORM_ROLE_LOCKED",
++        "Platform roles cannot be changed from tenant role management."
++      );
++    }
++    await assertRoleMutationAllowed(prisma, actor, existing.tenantId, {
++      roleType: data.roleType ?? existing.roleType,
++      departmentId:
++        data.departmentId === undefined ? existing.departmentId : data.departmentId
++    });
+     if (data.permissionIds) await this.validatePermissionIds(data.permissionIds);
+     return prisma.$transaction(async (tx) => {
+       await tx.role.update({
+         where: { id },
+         data: {
++          ...(data.departmentId !== undefined
++            ? { departmentId: data.departmentId }
++            : {}),
+           ...(data.name !== undefined ? { name: data.name } : {}),
+           ...(data.description !== undefined
+             ? { description: data.description }
+@@ -1467,6 +1494,8 @@ async function roleWithPermissions(tx: Transaction, id: string) {
+     select: {
+       id: true,
+       tenantId: true,
++      departmentId: true,
++      department: { select: { id: true, code: true, name: true } },
+       code: true,
+       name: true,
+       description: true,
+@@ -1781,6 +1810,56 @@ function requirePlatformActor(actor: Actor): void {
+   if (!actor.isPlatformAdmin) throw new AuthorizationError();
+ }
+ 
++async function assertRoleMutationAllowed(
++  db: Transaction | PrismaClient,
++  actor: Actor,
++  tenantId: string,
++  input: {
++    roleType: "PLATFORM" | "TENANT" | "ORGANIZATION" | "MANAGER" | "SELF";
++    departmentId?: string | null;
++  }
++): Promise<void> {
++  assertTenantAccess(actor, tenantId);
++  if (!actor.isPlatformAdmin && input.roleType === "TENANT") {
++    throw new AuthorizationError(
++      "Only platform administrators can manage tenant-wide roles."
++    );
++  }
++  if (input.roleType === "ORGANIZATION" || input.roleType === "MANAGER") {
++    if (!input.departmentId) {
++      throw new ValidationError([
++        {
++          field: "departmentId",
++          code: "REQUIRED",
++          message: "An organization must be selected for this role."
++        }
++      ]);
++    }
++    const organization = await db.organization.findFirst({
++      where: {
++        id: input.departmentId,
++        tenantId,
++        deletedAt: null
++      },
++      select: { id: true }
++    });
++    if (!organization) {
++      throw new ValidationError([
++        {
++          field: "departmentId",
++          code: "INVALID_SCOPE",
++          message: "Organization must belong to the selected tenant."
++        }
++      ]);
++    }
++    await assertOrganizationInScope(db, actor, tenantId, input.departmentId);
++    return;
++  }
++  if (!actor.isPlatformAdmin && input.departmentId) {
++    await assertOrganizationInScope(db, actor, tenantId, input.departmentId);
++  }
++}
++
+ function assertTenantAccess(actor: Actor, tenantId: string): void {
+   if (!actor.isPlatformAdmin && requireActorTenant(actor) !== tenantId) {
+     throw new AuthorizationError("Cross-tenant access is forbidden.");
+diff --git a/tests/security/rbac.integration.test.ts b/tests/security/rbac.integration.test.ts
+index 772c27e..c428187 100644
+--- a/tests/security/rbac.integration.test.ts
++++ b/tests/security/rbac.integration.test.ts
+@@ -229,6 +229,93 @@ describe("RBAC and tenant isolation", () => {
+     });
+   });
+ 
++  it("allows tenant admins to create only organization-bound custom roles", async () => {
++    const unique = Date.now();
++    const token = await testAccessToken("venturesoft", "orgadmin@venturesoft.ai");
++    const tenantId = await currentTenantId(token);
++    const department = await prisma.organization.findFirstOrThrow({
++      where: { tenantId, organizationType: "department", deletedAt: null },
++      select: { id: true }
++    });
++    const permission = await prisma.permission.findFirstOrThrow({
++      where: { code: "user.read", deletedAt: null },
++      select: { id: true }
++    });
++    const code = `ORG_BOUND_ROLE_${unique}`;
++    let roleId: string | undefined;
++
++    try {
++      const tenantWideResponse = await api("/api/v1/admin/roles", token, {
++        method: "POST",
++        body: {
++          tenantId,
++          code: `TENANT_ROLE_${unique}`,
++          name: `Tenant Role ${unique}`,
++          roleType: "TENANT",
++          permissionIds: [permission.id]
++        }
++      });
++      expect(tenantWideResponse.status).toBe(403);
++
++      const missingDepartmentResponse = await api("/api/v1/admin/roles", token, {
++        method: "POST",
++        body: {
++          tenantId,
++          code: `ORG_ROLE_NO_DEPT_${unique}`,
++          name: `Org Role No Dept ${unique}`,
++          roleType: "ORGANIZATION",
++          permissionIds: [permission.id]
++        }
++      });
++      expect(missingDepartmentResponse.status).toBe(422);
++
++      const response = await api("/api/v1/admin/roles", token, {
++        method: "POST",
++        body: {
++          tenantId,
++          departmentId: department.id,
++          code,
++          name: `Org Bound Role ${unique}`,
++          roleType: "ORGANIZATION",
++          permissionIds: [permission.id]
++        }
++      });
++      expect(response.status).toBe(201);
++      const payload = (await response.json()) as {
++        data: { id: string; departmentId: string; roleType: string };
++      };
++      roleId = payload.data.id;
++      expect(payload.data).toMatchObject({
++        departmentId: department.id,
++        roleType: "ORGANIZATION"
++      });
++    } finally {
++      if (roleId) await cleanupRole(roleId);
++      await prisma.role.deleteMany({
++        where: {
++          tenantId,
++          code: { in: [`TENANT_ROLE_${unique}`, `ORG_ROLE_NO_DEPT_${unique}`, code] }
++        }
++      });
++    }
++  });
++
++  it("blocks tenant admins from editing default system roles", async () => {
++    const token = await testAccessToken("venturesoft", "orgadmin@venturesoft.ai");
++    const tenantId = await currentTenantId(token);
++    const role = await prisma.role.findFirstOrThrow({
++      where: { tenantId, code: "HR_MANAGER", isSystemRole: true, deletedAt: null },
++      select: { id: true }
++    });
++
++    const response = await api(`/api/v1/admin/roles/${role.id}`, token, {
++      method: "PATCH",
++      body: { name: "Changed HR Manager" }
++    });
++
++    expect(response.status).toBe(409);
++  });
++
+   it("rotates refresh tokens, revokes them on logout, and rejects reuse", async () => {
+     const loginResult = await loginResponse("venturesoft", "employee@venturesoft.ai");
+     expect(loginResult.status).toBe(200);
+@@ -1214,6 +1301,55 @@ async function login(
+   return payload.data.accessToken;
+ }
+ 
++async function testAccessToken(
++  tenantCode: string | undefined,
++  login: string
++): Promise<string> {
++  const tenant = tenantCode
++    ? await prisma.tenant.findUniqueOrThrow({
++        where: { code: tenantCode },
++        select: { id: true }
++      })
++    : null;
++  const user = await prisma.user.findFirstOrThrow({
++    where: {
++      OR: [
++        { email: login },
++        { username: login },
++        ...(isUuid(login) ? [{ id: login }] : [])
++      ],
++      status: "ACTIVE",
++      deletedAt: null
++    },
++    select: { id: true }
++  });
++  const session = await prisma.authSession.create({
++    data: {
++      tenantId: tenant?.id ?? null,
++      userId: user.id,
++      refreshTokenHash: "f".repeat(64),
++      refreshTokenFamily: randomUUID(),
++      expiresAt: new Date(Date.now() + 86_400_000)
++    },
++    select: { id: true }
++  });
++  return tokenService.signAccessToken({
++    sub: user.id,
++    tenant_id: tenant?.id ?? null,
++    session_id: session.id,
++    role_ids: [],
++    roles: [],
++    role_names: [],
++    permissions: [],
++    is_platform_admin: false,
++    amr: ["pwd"]
++  });
++}
++
++function isUuid(value: string): boolean {
++  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
++}
++
+ function loginResponse(
+   tenant: string | undefined,
+   login: string

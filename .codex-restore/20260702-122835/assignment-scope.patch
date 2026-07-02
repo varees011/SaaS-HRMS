@@ -1,0 +1,435 @@
+diff --git a/src/modules/admin/admin.service.ts b/src/modules/admin/admin.service.ts
+index 72d02ef..121da49 100644
+--- a/src/modules/admin/admin.service.ts
++++ b/src/modules/admin/admin.service.ts
+@@ -59,9 +59,6 @@ export class AdminService {
+               ]
+             }
+           : {}),
+-        ...(input.organizationType
+-          ? { organizationType: input.organizationType }
+-          : {})
+       },
+       orderBy: tenantOrderBy(input.sort),
+       take: input.limit + 1,
+@@ -183,6 +180,9 @@ export class AdminService {
+                 { code: { contains: input.search, mode: "insensitive" } }
+               ]
+             }
++          : {}),
++        ...(input.organizationType
++          ? { organizationType: input.organizationType }
+           : {})
+       },
+       orderBy: organizationOrderBy(input.sort),
+@@ -350,6 +350,12 @@ export class AdminService {
+   async listUsers(input: ListInput, actor: Actor) {
+     const tenantId = resolveTenant(actor, input.tenantId);
+     const scope = await resolveOrganizationScope(prisma, actor, tenantId);
++    const tenantMembershipStatus =
++      tenantId && input.status
++        ? membershipStatus(
++            input.status as "INVITED" | "ACTIVE" | "LOCKED" | "DISABLED"
++          )
++        : undefined;
+     const rows = await prisma.user.findMany({
+       where: {
+         deletedAt: null,
+@@ -358,7 +364,10 @@ export class AdminService {
+               memberships: {
+                 some: {
+                   tenantId,
+-                  deletedAt: null
++                  deletedAt: null,
++                  ...(tenantMembershipStatus
++                    ? { status: tenantMembershipStatus }
++                    : {})
+                 }
+               }
+             }
+@@ -386,7 +395,7 @@ export class AdminService {
+               }
+             }
+           : {}),
+-        ...(input.status
++        ...(input.status && !tenantId
+           ? {
+               status: input.status as
+                 | "INVITED"
+@@ -596,6 +605,7 @@ export class AdminService {
+   async createRole(
+     data: {
+       tenantId: string;
++      departmentId?: string | null;
+       code: string;
+       name: string;
+       description?: string | null;
+@@ -606,11 +616,16 @@ export class AdminService {
+     context: RequestContext
+   ) {
+     const tenantId = resolveRequiredTenant(actor, data.tenantId);
++    await assertRoleMutationAllowed(prisma, actor, tenantId, {
++      roleType: data.roleType,
++      departmentId: data.departmentId ?? null
++    });
+     await this.validatePermissionIds(data.permissionIds);
+     return prisma.$transaction(async (tx) => {
+       const role = await tx.role.create({
+         data: {
+           tenantId,
++          departmentId: data.departmentId ?? null,
+           code: data.code,
+           name: data.name,
+           description: data.description ?? null,
+@@ -639,6 +654,7 @@ export class AdminService {
+   async updateRole(
+     id: string,
+     data: {
++      departmentId?: string | null;
+       name?: string;
+       description?: string | null;
+       roleType?: "TENANT" | "ORGANIZATION" | "MANAGER" | "SELF";
+@@ -657,11 +673,31 @@ export class AdminService {
+       }
+     });
+     if (!existing) throw new NotFoundError("Role");
++    if (existing.isSystemRole) {
++      throw new ConflictError(
++        "SYSTEM_ROLE_LOCKED",
++        "Default system roles cannot be changed."
++      );
++    }
++    if (!existing.tenantId) {
++      throw new ConflictError(
++        "PLATFORM_ROLE_LOCKED",
++        "Platform roles cannot be changed from tenant role management."
++      );
++    }
++    await assertRoleMutationAllowed(prisma, actor, existing.tenantId, {
++      roleType: data.roleType ?? existing.roleType,
++      departmentId:
++        data.departmentId === undefined ? existing.departmentId : data.departmentId
++    });
+     if (data.permissionIds) await this.validatePermissionIds(data.permissionIds);
+     return prisma.$transaction(async (tx) => {
+       await tx.role.update({
+         where: { id },
+         data: {
++          ...(data.departmentId !== undefined
++            ? { departmentId: data.departmentId }
++            : {}),
+           ...(data.name !== undefined ? { name: data.name } : {}),
+           ...(data.description !== undefined
+             ? { description: data.description }
+@@ -1467,6 +1503,8 @@ async function roleWithPermissions(tx: Transaction, id: string) {
+     select: {
+       id: true,
+       tenantId: true,
++      departmentId: true,
++      department: { select: { id: true, code: true, name: true } },
+       code: true,
+       name: true,
+       description: true,
+@@ -1781,6 +1819,56 @@ function requirePlatformActor(actor: Actor): void {
+   if (!actor.isPlatformAdmin) throw new AuthorizationError();
+ }
+ 
++async function assertRoleMutationAllowed(
++  db: Transaction | PrismaClient,
++  actor: Actor,
++  tenantId: string,
++  input: {
++    roleType: "PLATFORM" | "TENANT" | "ORGANIZATION" | "MANAGER" | "SELF";
++    departmentId?: string | null;
++  }
++): Promise<void> {
++  assertTenantAccess(actor, tenantId);
++  if (!actor.isPlatformAdmin && input.roleType === "TENANT") {
++    throw new AuthorizationError(
++      "Only platform administrators can manage tenant-wide roles."
++    );
++  }
++  if (input.roleType === "ORGANIZATION" || input.roleType === "MANAGER") {
++    if (!input.departmentId) {
++      throw new ValidationError([
++        {
++          field: "departmentId",
++          code: "REQUIRED",
++          message: "An organization must be selected for this role."
++        }
++      ]);
++    }
++    const organization = await db.organization.findFirst({
++      where: {
++        id: input.departmentId,
++        tenantId,
++        deletedAt: null
++      },
++      select: { id: true }
++    });
++    if (!organization) {
++      throw new ValidationError([
++        {
++          field: "departmentId",
++          code: "INVALID_SCOPE",
++          message: "Organization must belong to the selected tenant."
++        }
++      ]);
++    }
++    await assertOrganizationInScope(db, actor, tenantId, input.departmentId);
++    return;
++  }
++  if (!actor.isPlatformAdmin && input.departmentId) {
++    await assertOrganizationInScope(db, actor, tenantId, input.departmentId);
++  }
++}
++
+ function assertTenantAccess(actor: Actor, tenantId: string): void {
+   if (!actor.isPlatformAdmin && requireActorTenant(actor) !== tenantId) {
+     throw new AuthorizationError("Cross-tenant access is forbidden.");
+diff --git a/tests/security/rbac.integration.test.ts b/tests/security/rbac.integration.test.ts
+index 772c27e..4327360 100644
+--- a/tests/security/rbac.integration.test.ts
++++ b/tests/security/rbac.integration.test.ts
+@@ -185,6 +185,42 @@ describe("RBAC and tenant isolation", () => {
+     expect(settingsResponse.status).toBe(200);
+   });
+ 
++  it("filters organization lists by organization type", async () => {
++    const token = await platformTestAccessToken();
++    const tenant = await prisma.tenant.findUniqueOrThrow({
++      where: { code: "venturesoft" },
++      select: { id: true }
++    });
++
++    const companiesResponse = await api(
++      `/api/v1/admin/organizations?tenantId=${tenant.id}&organizationType=company&limit=100`,
++      token
++    );
++    const departmentsResponse = await api(
++      `/api/v1/admin/organizations?tenantId=${tenant.id}&organizationType=department&limit=100`,
++      token
++    );
++
++    expect(companiesResponse.status).toBe(200);
++    expect(departmentsResponse.status).toBe(200);
++    const companies = (await companiesResponse.json()) as {
++      data: Array<{ name: string; organizationType: string }>;
++    };
++    const departments = (await departmentsResponse.json()) as {
++      data: Array<{ name: string; organizationType: string }>;
++    };
++    expect(companies.data).toEqual([
++      expect.objectContaining({
++        name: "VentureSoft.AI",
++        organizationType: "company"
++      })
++    ]);
++    expect(departments.data.length).toBeGreaterThan(0);
++    expect(departments.data.every((item) => item.organizationType === "department")).toBe(
++      true
++    );
++  });
++
+   it.each([
+     ["Organization Admin", "orgadmin@venturesoft.ai", "ORGANIZATION_ADMIN"],
+     ["HR Manager", "hrmanager", "HR_MANAGER"],
+@@ -229,6 +265,93 @@ describe("RBAC and tenant isolation", () => {
+     });
+   });
+ 
++  it("allows tenant admins to create only organization-bound custom roles", async () => {
++    const unique = Date.now();
++    const token = await testAccessToken("venturesoft", "orgadmin@venturesoft.ai");
++    const tenantId = await currentTenantId(token);
++    const department = await prisma.organization.findFirstOrThrow({
++      where: { tenantId, organizationType: "department", deletedAt: null },
++      select: { id: true }
++    });
++    const permission = await prisma.permission.findFirstOrThrow({
++      where: { code: "user.read", deletedAt: null },
++      select: { id: true }
++    });
++    const code = `ORG_BOUND_ROLE_${unique}`;
++    let roleId: string | undefined;
++
++    try {
++      const tenantWideResponse = await api("/api/v1/admin/roles", token, {
++        method: "POST",
++        body: {
++          tenantId,
++          code: `TENANT_ROLE_${unique}`,
++          name: `Tenant Role ${unique}`,
++          roleType: "TENANT",
++          permissionIds: [permission.id]
++        }
++      });
++      expect(tenantWideResponse.status).toBe(403);
++
++      const missingDepartmentResponse = await api("/api/v1/admin/roles", token, {
++        method: "POST",
++        body: {
++          tenantId,
++          code: `ORG_ROLE_NO_DEPT_${unique}`,
++          name: `Org Role No Dept ${unique}`,
++          roleType: "ORGANIZATION",
++          permissionIds: [permission.id]
++        }
++      });
++      expect(missingDepartmentResponse.status).toBe(422);
++
++      const response = await api("/api/v1/admin/roles", token, {
++        method: "POST",
++        body: {
++          tenantId,
++          departmentId: department.id,
++          code,
++          name: `Org Bound Role ${unique}`,
++          roleType: "ORGANIZATION",
++          permissionIds: [permission.id]
++        }
++      });
++      expect(response.status).toBe(201);
++      const payload = (await response.json()) as {
++        data: { id: string; departmentId: string; roleType: string };
++      };
++      roleId = payload.data.id;
++      expect(payload.data).toMatchObject({
++        departmentId: department.id,
++        roleType: "ORGANIZATION"
++      });
++    } finally {
++      if (roleId) await cleanupRole(roleId);
++      await prisma.role.deleteMany({
++        where: {
++          tenantId,
++          code: { in: [`TENANT_ROLE_${unique}`, `ORG_ROLE_NO_DEPT_${unique}`, code] }
++        }
++      });
++    }
++  });
++
++  it("blocks tenant admins from editing default system roles", async () => {
++    const token = await testAccessToken("venturesoft", "orgadmin@venturesoft.ai");
++    const tenantId = await currentTenantId(token);
++    const role = await prisma.role.findFirstOrThrow({
++      where: { tenantId, code: "HR_MANAGER", isSystemRole: true, deletedAt: null },
++      select: { id: true }
++    });
++
++    const response = await api(`/api/v1/admin/roles/${role.id}`, token, {
++      method: "PATCH",
++      body: { name: "Changed HR Manager" }
++    });
++
++    expect(response.status).toBe(409);
++  });
++
+   it("rotates refresh tokens, revokes them on logout, and rejects reuse", async () => {
+     const loginResult = await loginResponse("venturesoft", "employee@venturesoft.ai");
+     expect(loginResult.status).toBe(200);
+@@ -1031,6 +1154,16 @@ describe("RBAC and tenant isolation", () => {
+         })
+       ).resolves.toMatchObject({ status: "DISABLED" });
+ 
++      const activeUsersResponse = await api(
++        `/api/v1/admin/users?tenantId=${tenant.id}&status=ACTIVE&limit=1000`,
++        orgAdminToken.token
++      );
++      expect(activeUsersResponse.status).toBe(200);
++      const activeUsers = (await activeUsersResponse.json()) as {
++        data: Array<{ id: string }>;
++      };
++      expect(activeUsers.data.map((item) => item.id)).not.toContain(userId);
++
+       const activateResponse = await api(
+         `/api/v1/admin/users/${userId}`,
+         orgAdminToken.token,
+@@ -1214,6 +1347,87 @@ async function login(
+   return payload.data.accessToken;
+ }
+ 
++async function testAccessToken(
++  tenantCode: string | undefined,
++  login: string
++): Promise<string> {
++  const tenant = tenantCode
++    ? await prisma.tenant.findUniqueOrThrow({
++        where: { code: tenantCode },
++        select: { id: true }
++      })
++    : null;
++  const user = await prisma.user.findFirstOrThrow({
++    where: {
++      OR: [
++        { email: login },
++        { username: login },
++        ...(isUuid(login) ? [{ id: login }] : [])
++      ],
++      status: "ACTIVE",
++      deletedAt: null
++    },
++    select: { id: true }
++  });
++  const session = await prisma.authSession.create({
++    data: {
++      tenantId: tenant?.id ?? null,
++      userId: user.id,
++      refreshTokenHash: "f".repeat(64),
++      refreshTokenFamily: randomUUID(),
++      expiresAt: new Date(Date.now() + 86_400_000)
++    },
++    select: { id: true }
++  });
++  return tokenService.signAccessToken({
++    sub: user.id,
++    tenant_id: tenant?.id ?? null,
++    session_id: session.id,
++    role_ids: [],
++    roles: [],
++    role_names: [],
++    permissions: [],
++    is_platform_admin: false,
++    amr: ["pwd"]
++  });
++}
++
++async function platformTestAccessToken(): Promise<string> {
++  const user = await prisma.user.findUniqueOrThrow({
++    where: { email: "superadmin@venturesoft.ai" },
++    select: { id: true }
++  });
++  const role = await prisma.role.findFirstOrThrow({
++    where: { tenantId: null, code: PLATFORM_ROLE.code, deletedAt: null },
++    select: { id: true, name: true }
++  });
++  const session = await prisma.authSession.create({
++    data: {
++      tenantId: null,
++      userId: user.id,
++      refreshTokenHash: "p".repeat(64),
++      refreshTokenFamily: randomUUID(),
++      expiresAt: new Date(Date.now() + 86_400_000)
++    },
++    select: { id: true }
++  });
++  return tokenService.signAccessToken({
++    sub: user.id,
++    tenant_id: null,
++    session_id: session.id,
++    role_ids: [role.id],
++    roles: [PLATFORM_ROLE.code],
++    role_names: [role.name],
++    permissions: PERMISSIONS.map((permission) => permission.code),
++    is_platform_admin: true,
++    amr: ["pwd"]
++  });
++}
++
++function isUuid(value: string): boolean {
++  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
++}
++
+ function loginResponse(
+   tenant: string | undefined,
+   login: string

@@ -45,9 +45,11 @@ import {
 import type {
   PerformanceGoal,
   PerformanceKpi,
-  PerformanceKra
+  PerformanceKra,
+  PerformanceReview
 } from "@/features/performance/performance.types";
 import { useAuthStore } from "@/features/auth/auth.store";
+import type { CurrentUser } from "@/features/auth/auth.types";
 import { hasAnyPermission } from "@/features/auth/permissions";
 import { ApiError } from "@/shared/api/http";
 import { cn } from "@/shared/lib/cn";
@@ -140,11 +142,17 @@ export function PerformancePage() {
   ]);
   const canReadPerformanceManagement = hasAnyPermission(user, [
     "tenant.performance.read",
-    "tenant.performance.manage",
-    "team.performance.review"
+    "tenant.performance.manage"
   ]);
+  const isManagerRole = hasManagerRole(user);
+  const isManagerDashboard =
+    !canManagePerformance &&
+    !canReadPerformanceManagement &&
+    (canReview || isManagerRole);
   const isSelfPerformanceOnly =
-    !canReadPerformanceManagement && hasAnyPermission(user, ["self.performance.read"]);
+    !canReadPerformanceManagement &&
+    !isManagerDashboard &&
+    hasAnyPermission(user, ["self.performance.read"]);
 
   const tenants = useQuery({
     queryKey: ["admin", "tenants", "performance"],
@@ -459,6 +467,47 @@ export function PerformancePage() {
   const activeSectionMeta =
     performanceSections.find((section) => section.id === activeSection) ??
     performanceSections[0]!;
+
+  if (isManagerDashboard) {
+    const visibleReviews = reviews.data?.data ?? [];
+    const managerReviews = visibleReviews.filter(
+      (review) => review.managerUserId === user.id
+    );
+    const ownReviews = visibleReviews.filter(
+      (review) => review.employeeUserId === user.id
+    );
+    const pendingManagerReviews = managerReviews.filter(
+      (review) => !review.managerScore && review.status !== "APPROVED"
+    );
+    const completedManagerReviews = managerReviews.filter(
+      (review) => review.managerScore || review.status === "APPROVED"
+    );
+    const scoredReviews = managerReviews.filter((review) => review.finalScore);
+    const averageScore = scoredReviews.length
+      ? (
+          scoredReviews.reduce(
+            (sum, review) => sum + Number(review.finalScore ?? 0),
+            0
+          ) / scoredReviews.length
+        ).toFixed(1)
+      : "0";
+
+    return (
+      <ManagerPerformanceDashboard
+        tenantName={activeTenantLabel}
+        isLoading={reviews.isLoading}
+        managerReviews={managerReviews}
+        ownReviews={ownReviews}
+        pendingReviews={pendingManagerReviews}
+        completedReviews={completedManagerReviews}
+        averageScore={averageScore}
+        managerPending={managerAssessment.isPending}
+        onManager={(id, input) => managerAssessment.mutate({ id, input })}
+        error={error}
+        success={success}
+      />
+    );
+  }
 
   if (isSelfPerformanceOnly) {
     const ownReviews = reviews.data?.data ?? [];
@@ -1508,33 +1557,21 @@ function ReviewAssignmentStep({
     organizationId?: string | null;
   }) => void;
 }) {
-  const [employeeSearch, setEmployeeSearch] = useState("");
-  const [managerSearch, setManagerSearch] = useState("");
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<string[]>([]);
   const [selectedEmployeeRecords, setSelectedEmployeeRecords] = useState<AdminUser[]>([]);
-  const [managerUserId, setManagerUserId] = useState("");
+  const [employeeToAddId, setEmployeeToAddId] = useState("");
   const [departmentId, setDepartmentId] = useState("");
   const [teamId, setTeamId] = useState("");
+  const selectedScopeId = teamId || departmentId;
 
   const employees = useQuery({
-    queryKey: ["admin", "users", "employees", tenantId, employeeSearch],
+    queryKey: ["admin", "users", "employees", tenantId, selectedScopeId],
     queryFn: () =>
       adminApi.listUsers({
         tenantId,
+        ...(selectedScopeId ? { departmentId: selectedScopeId } : {}),
         role: "employee",
         status: "ACTIVE",
-        search: employeeSearch
-      }),
-    enabled: Boolean(tenantId)
-  });
-  const managers = useQuery({
-    queryKey: ["admin", "users", "managers", tenantId, managerSearch],
-    queryFn: () =>
-      adminApi.listUsers({
-        tenantId,
-        role: "manager",
-        status: "ACTIVE",
-        search: managerSearch,
         limit: 1000
       }),
     enabled: Boolean(tenantId)
@@ -1555,13 +1592,38 @@ function ReviewAssignmentStep({
         tenantId,
         organizationType: "team",
         departmentId
-      }),
+    }),
     enabled: Boolean(tenantId && departmentId)
   });
+
+  useEffect(() => {
+    setEmployeeToAddId("");
+    setSelectedEmployeeIds([]);
+    setSelectedEmployeeRecords([]);
+  }, [selectedScopeId]);
 
   const selectedEmployees = selectedEmployeeRecords.filter((employee) =>
     selectedEmployeeIds.includes(employee.id)
   );
+  const availableEmployees =
+    employees.data?.data.filter((employee) => !selectedEmployeeIds.includes(employee.id)) ??
+    [];
+  const selectedManagers = uniqueManagers(selectedEmployees);
+  const employeesWithoutManager = selectedEmployees.filter(
+    (employee) => !employee.reportingManagerUserId
+  );
+
+  function addEmployee(employeeId: string) {
+    const employee = employees.data?.data.find((item) => item.id === employeeId);
+    if (!employee) return;
+    setSelectedEmployeeIds((current) =>
+      current.includes(employee.id) ? current : [...current, employee.id]
+    );
+    setSelectedEmployeeRecords((records) =>
+      records.some((item) => item.id === employee.id) ? records : [...records, employee]
+    );
+    setEmployeeToAddId("");
+  }
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1570,7 +1632,7 @@ function ReviewAssignmentStep({
       tenantId,
       cycleId,
       employeeUserIds: selectedEmployeeIds,
-      managerUserId: managerUserId || null,
+      managerUserId: null,
       organizationId: teamId || departmentId || null
     });
   }
@@ -1578,83 +1640,81 @@ function ReviewAssignmentStep({
   return (
     <form className="space-y-5" onSubmit={submit}>
       {!cycleId ? <Alert>Select or create a cycle before assigning assessments.</Alert> : null}
-      <div className="grid gap-3 md:grid-cols-2">
-        <label className="space-y-1.5">
-          <span className="text-sm font-medium">1. Department scope</span>
-          <Select
-            value={departmentId}
-            onChange={(event) => {
-              setDepartmentId(event.target.value);
-              setTeamId("");
-            }}
-          >
-            <option value="">No department scope</option>
-            {departments.data?.data.map((department) => (
-              <option key={department.id} value={department.id}>
-                {department.name} ({department.code})
+      <div className="rounded-md border">
+        <div className="grid gap-3 border-b p-3 md:grid-cols-2 xl:grid-cols-4">
+          <label className="space-y-1.5">
+            <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              Department
+            </span>
+            <Select
+              value={departmentId}
+              onChange={(event) => {
+                setDepartmentId(event.target.value);
+                setTeamId("");
+              }}
+            >
+              <option value="">No department scope</option>
+              {departments.data?.data.map((department) => (
+                <option key={department.id} value={department.id}>
+                  {department.name}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <label className="space-y-1.5">
+            <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              Team
+            </span>
+            <Select
+              value={teamId}
+              disabled={!departmentId}
+              onChange={(event) => setTeamId(event.target.value)}
+            >
+              <option value="">
+                {departmentId ? "No team scope" : "Select department first"}
               </option>
-            ))}
-          </Select>
-        </label>
-        <label className="space-y-1.5">
-          <span className="text-sm font-medium">Team scope</span>
-          <Select
-            value={teamId}
-            disabled={!departmentId}
-            onChange={(event) => setTeamId(event.target.value)}
-          >
-            <option value="">
-              {departmentId ? "No team scope" : "Select a department first"}
-            </option>
-            {teams.data?.data.map((team) => (
-              <option key={team.id} value={team.id}>
-                {team.name} ({team.code})
-              </option>
-            ))}
-          </Select>
-        </label>
+              {teams.data?.data.map((team) => (
+                <option key={team.id} value={team.id}>
+                  {team.name}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <ReportingManagerField
+            label="Manager reviewer"
+            managers={selectedManagers}
+            missingCount={employeesWithoutManager.length}
+          />
+          <AssignmentUserSelect
+            label="Employees to assess"
+            placeholder="Add employee"
+            users={availableEmployees}
+            value={employeeToAddId}
+            onChange={addEmployee}
+            isLoading={employees.isLoading}
+          />
+        </div>
+        <div className="flex flex-wrap gap-2 p-3 text-xs text-muted-foreground">
+          <Badge variant={selectedScopeId ? "success" : "secondary"}>
+            {selectedScopeId ? "Scoped" : "Tenant-wide"}
+          </Badge>
+          <span>
+            {selectedManagers.length} reporting manager
+            {selectedManagers.length === 1 ? "" : "s"}
+          </span>
+          <span>
+            {employees.isLoading
+              ? "Loading employees..."
+              : `${employees.data?.data.length ?? 0} assessable employees`}
+          </span>
+        </div>
       </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <SearchableUsers
-          title="2. Manager reviewer"
-          search={managerSearch}
-          onSearch={setManagerSearch}
-          users={managers.data?.data ?? []}
-          selectedIds={managerUserId ? [managerUserId] : []}
-          onToggle={(id) => setManagerUserId(id === managerUserId ? "" : id)}
-          isLoading={managers.isLoading}
-          mode="single"
-        />
-        <SearchableUsers
-          title="3. Employees to assess"
-          search={employeeSearch}
-          onSearch={setEmployeeSearch}
-          users={employees.data?.data ?? []}
-          selectedIds={selectedEmployeeIds}
-          onToggle={(id) => {
-            const employee = employees.data?.data.find((item) => item.id === id);
-            setSelectedEmployeeIds((current) => {
-              if (current.includes(id)) {
-                setSelectedEmployeeRecords((records) =>
-                  records.filter((item) => item.id !== id)
-                );
-                return current.filter((item) => item !== id);
-              }
-              if (employee) {
-                setSelectedEmployeeRecords((records) =>
-                  records.some((item) => item.id === id)
-                    ? records
-                    : [...records, employee]
-                );
-              }
-              return [...current, id];
-            });
-          }}
-          isLoading={employees.isLoading}
-          mode="multiple"
-        />
-      </div>
+      {employeesWithoutManager.length ? (
+        <Alert>
+          Set a reporting manager for {employeesWithoutManager.length} selected employee
+          {employeesWithoutManager.length === 1 ? "" : "s"} before creating reviews.
+        </Alert>
+      ) : null}
 
       <div className="rounded-md border">
         <div className="border-b p-3 text-sm font-medium">
@@ -1701,7 +1761,15 @@ function ReviewAssignmentStep({
       </div>
 
       <div className="flex justify-end">
-        <Button disabled={!canReview || !cycleId || !selectedEmployeeIds.length || isSaving}>
+        <Button
+          disabled={
+            !canReview ||
+            !cycleId ||
+            !selectedEmployeeIds.length ||
+            Boolean(employeesWithoutManager.length) ||
+            isSaving
+          }
+        >
           {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ClipboardCheck className="h-4 w-4" />}
           Create Reviews
         </Button>
@@ -1710,116 +1778,354 @@ function ReviewAssignmentStep({
   );
 }
 
-function SearchableUsers({
-  title,
-  search,
-  onSearch,
-  users,
-  selectedIds,
-  onToggle,
+function ManagerPerformanceDashboard({
+  tenantName,
   isLoading,
-  mode
+  managerReviews,
+  ownReviews,
+  pendingReviews,
+  completedReviews,
+  averageScore,
+  managerPending,
+  onManager,
+  error,
+  success
 }: {
-  title: string;
-  search: string;
-  onSearch: (value: string) => void;
-  users: AdminUser[];
-  selectedIds: string[];
-  onToggle: (id: string) => void;
+  tenantName: string;
   isLoading: boolean;
-  mode: "single" | "multiple";
+  managerReviews: PerformanceReview[];
+  ownReviews: PerformanceReview[];
+  pendingReviews: PerformanceReview[];
+  completedReviews: PerformanceReview[];
+  averageScore: string;
+  managerPending: boolean;
+  onManager: (
+    id: string,
+    input: {
+      managerScore: number;
+      finalScore?: number | null;
+      managerComments: string;
+      status: "MANAGER_REVIEWED" | "APPROVED" | "REJECTED";
+    }
+  ) => void;
+  error?: string;
+  success?: string;
 }) {
+  const metrics = [
+    { label: "Assigned reviews", value: managerReviews.length, icon: FileCheck2 },
+    { label: "Needs manager action", value: pendingReviews.length, icon: ClipboardCheck },
+    { label: "Completed", value: completedReviews.length, icon: CheckCircle2 },
+    { label: "Avg team score", value: averageScore, icon: BarChart3 }
+  ];
+
   return (
-    <div className="rounded-md border p-3">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="text-sm font-semibold">{title}</p>
-        {isLoading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
-      </div>
-      <Input
-        value={search}
-        onChange={(event) => onSearch(event.target.value)}
-        placeholder={`Search ${title.toLowerCase()} by name, email, or role`}
-      />
-      <div className="mt-3 max-h-72 space-y-2 overflow-auto">
-        {users.map((item) => {
-          const checked = selectedIds.includes(item.id);
-          return (
-            <label
-              key={item.id}
-              className={cn(
-                "flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm",
-                checked && "border-primary bg-primary/5"
-              )}
-            >
-              <input
-                type={mode === "multiple" ? "checkbox" : "radio"}
-                className="mt-1"
-                checked={checked}
-                onChange={() => onToggle(item.id)}
-              />
-              <span>
-                <span className="block font-medium">{userLabel(item)}</span>
-                <span className="block text-muted-foreground">{userMeta(item)}</span>
-              </span>
-            </label>
-          );
-        })}
-        {!users.length && !isLoading ? (
-          <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-            No matching users found.
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-semibold">Manager performance dashboard</h1>
+          <p className="text-muted-foreground">
+            Review employees assigned to you and track your own performance cycle.
           </p>
-        ) : null}
+        </div>
+        <div className="rounded-md border bg-secondary/40 px-3 py-2 text-sm font-medium">
+          {tenantName}
+        </div>
       </div>
+
+      {error ? <Alert variant="destructive">{error}</Alert> : null}
+      {success ? <Alert>{success}</Alert> : null}
+
+      <div className="grid gap-4 md:grid-cols-4">
+        {metrics.map(({ label, value, icon: Icon }) => (
+          <Card key={label}>
+            <CardContent className="flex items-center gap-4 p-5">
+              <span className="grid h-10 w-10 place-items-center rounded-lg bg-accent">
+                <Icon className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="text-sm text-muted-foreground">{label}</p>
+                <p className="text-lg font-semibold">
+                  {isLoading ? <LoaderCircle className="h-5 w-5 animate-spin" /> : value}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+        <ManagerReviewQueue
+          reviews={pendingReviews}
+          isLoading={isLoading}
+          isSaving={managerPending}
+          onManager={onManager}
+        />
+        <ReviewsTable
+          reviews={ownReviews}
+          title="My performance"
+          description="Your own employee review records."
+          emptyMessage="No personal performance reviews assigned yet."
+        />
+      </div>
+
+      {completedReviews.length ? (
+        <ReviewsTable
+          reviews={completedReviews}
+          title="Completed manager reviews"
+          description="Employees you have already scored or approved."
+          emptyMessage="No completed manager reviews yet."
+        />
+      ) : null}
     </div>
   );
 }
 
-function ReviewsTable({ reviews }: { reviews: Array<{
-  id: string;
-  status: string;
-  selfScore: string | null;
-  managerScore: string | null;
-  finalScore: string | null;
-  employee: { firstName: string; lastName: string; email: string };
-}> }) {
+function ManagerReviewQueue({
+  reviews,
+  isLoading,
+  isSaving,
+  onManager
+}: {
+  reviews: PerformanceReview[];
+  isLoading: boolean;
+  isSaving: boolean;
+  onManager: (
+    id: string,
+    input: {
+      managerScore: number;
+      finalScore?: number | null;
+      managerComments: string;
+      status: "MANAGER_REVIEWED" | "APPROVED" | "REJECTED";
+    }
+  ) => void;
+}) {
+  function submitManager(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    onManager(String(form.get("reviewId")), {
+      managerScore: Number(form.get("managerScore")),
+      finalScore: Number(form.get("finalScore") || form.get("managerScore")),
+      managerComments: String(form.get("managerComments")),
+      status: String(form.get("status")) as "MANAGER_REVIEWED" | "APPROVED" | "REJECTED"
+    });
+    event.currentTarget.reset();
+  }
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Reviews</CardTitle>
-        <CardDescription>Employee and manager assessment status.</CardDescription>
+        <CardTitle>Manager review queue</CardTitle>
+        <CardDescription>
+          Reviews where you are the assigned reporting manager.
+        </CardDescription>
       </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Employee</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Self</TableHead>
-              <TableHead>Manager</TableHead>
-              <TableHead>Final</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {reviews.map((review) => (
-              <TableRow key={review.id}>
-                <TableCell>
-                  <p className="font-medium">
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <LoaderCircle className="h-5 w-5 animate-spin" />
+        ) : reviews.length ? (
+          reviews.map((review) => (
+            <form
+              key={review.id}
+              className="space-y-3 rounded-md border p-4"
+              onSubmit={submitManager}
+            >
+              <input type="hidden" name="reviewId" value={review.id} />
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold">
                     {review.employee.firstName} {review.employee.lastName}
                   </p>
-                  <p className="text-xs text-muted-foreground">{review.employee.email}</p>
-                </TableCell>
-                <TableCell>
-                  <Badge variant={review.status === "APPROVED" ? "success" : "secondary"}>
-                    {review.status}
-                  </Badge>
-                </TableCell>
-                <TableCell>{review.selfScore ?? "-"}</TableCell>
-                <TableCell>{review.managerScore ?? "-"}</TableCell>
-                <TableCell>{review.finalScore ?? "-"}</TableCell>
+                  <p className="text-sm text-muted-foreground">
+                    {review.employee.email}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {review.cycle.name}
+                  </p>
+                </div>
+                <Badge variant="outline">{review.status}</Badge>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <Input
+                  name="managerScore"
+                  type="number"
+                  min="0"
+                  max="5"
+                  step="0.1"
+                  placeholder="Manager score"
+                  required
+                />
+                <Input
+                  name="finalScore"
+                  type="number"
+                  min="0"
+                  max="5"
+                  step="0.1"
+                  placeholder="Final score"
+                />
+                <Select name="status" defaultValue="MANAGER_REVIEWED">
+                  <option value="MANAGER_REVIEWED">Reviewed</option>
+                  <option value="APPROVED">Approved</option>
+                  <option value="REJECTED">Rejected</option>
+                </Select>
+              </div>
+              <textarea
+                name="managerComments"
+                className="min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                placeholder="Manager comments"
+                required
+              />
+              <Button disabled={isSaving}>
+                {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+                Submit manager review
+              </Button>
+            </form>
+          ))
+        ) : (
+          <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+            No employee reviews are assigned to you right now.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ReportingManagerField({
+  label,
+  managers,
+  missingCount
+}: {
+  label: string;
+  managers: Array<NonNullable<AdminUser["reportingManager"]>>;
+  missingCount: number;
+}) {
+  const singleManager = managers[0];
+  const value =
+    missingCount > 0
+      ? `${missingCount} employee${missingCount === 1 ? "" : "s"} missing manager`
+      : managers.length === 0
+        ? "Select employee first"
+        : managers.length === 1 && singleManager
+          ? `${singleManager.firstName} ${singleManager.lastName} - ${singleManager.email}`
+          : `${managers.length} reporting managers from selected employees`;
+
+  return (
+    <label className="space-y-1.5">
+      <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        {label}
+      </span>
+      <div
+        className={cn(
+          "flex h-10 items-center truncate rounded-md border border-primary/10 bg-muted/40 px-3 py-2 text-sm shadow-inner shadow-primary/5",
+          missingCount ? "border-destructive/40 text-destructive" : "text-primary"
+        )}
+        title={value}
+      >
+        {value}
+      </div>
+    </label>
+  );
+}
+
+function AssignmentUserSelect({
+  label,
+  placeholder,
+  users,
+  value,
+  onChange,
+  isLoading
+}: {
+  label: string;
+  placeholder: string;
+  users: AdminUser[];
+  value: string;
+  onChange: (id: string) => void;
+  isLoading: boolean;
+}) {
+  return (
+    <label className="space-y-1.5">
+      <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        {label}
+        {isLoading ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : null}
+      </span>
+      <Select
+        value={value}
+        disabled={isLoading || !users.length}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="">{isLoading ? "Loading..." : placeholder}</option>
+        {users.map((item) => (
+          <option key={item.id} value={item.id}>
+            {userLabel(item)} - {userMeta(item)}
+          </option>
+        ))}
+      </Select>
+    </label>
+  );
+}
+
+function ReviewsTable({
+  reviews,
+  title = "Reviews",
+  description = "Employee and manager assessment status.",
+  emptyMessage = "No performance reviews found."
+}: {
+  reviews: Array<{
+    id: string;
+    status: string;
+    selfScore: string | null;
+    managerScore: string | null;
+    finalScore: string | null;
+    employee: { firstName: string; lastName: string; email: string };
+  }>;
+  title?: string;
+  description?: string;
+  emptyMessage?: string;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {reviews.length ? (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Employee</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Self</TableHead>
+                <TableHead>Manager</TableHead>
+                <TableHead>Final</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {reviews.map((review) => (
+                <TableRow key={review.id}>
+                  <TableCell>
+                    <p className="font-medium">
+                      {review.employee.firstName} {review.employee.lastName}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{review.employee.email}</p>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={review.status === "APPROVED" ? "success" : "secondary"}>
+                      {review.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{review.selfScore ?? "-"}</TableCell>
+                  <TableCell>{review.managerScore ?? "-"}</TableCell>
+                  <TableCell>{review.finalScore ?? "-"}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        ) : (
+          <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+            {emptyMessage}
+          </p>
+        )}
       </CardContent>
     </Card>
   );
@@ -1989,6 +2295,28 @@ function userMeta(user: AdminUser) {
   const role = user.roleAssignments[0]?.role.name ?? "Employee";
   const department = userDepartment(user);
   return `${role} - ${department}`;
+}
+
+function uniqueManagers(users: AdminUser[]) {
+  const managers = new Map<string, NonNullable<AdminUser["reportingManager"]>>();
+  for (const user of users) {
+    if (user.reportingManager) {
+      managers.set(user.reportingManager.id, user.reportingManager);
+    }
+  }
+  return [...managers.values()];
+}
+
+function hasManagerRole(user: CurrentUser) {
+  const values = [
+    ...user.roles,
+    ...user.roleNames,
+    ...user.roleAssignments.flatMap((assignment) => [
+      assignment.role.code,
+      assignment.role.name
+    ])
+  ];
+  return values.some((value) => value.toLowerCase().includes("manager"));
 }
 
 function userDepartment(user: AdminUser) {

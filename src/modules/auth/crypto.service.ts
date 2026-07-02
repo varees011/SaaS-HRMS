@@ -4,6 +4,7 @@ import {
   createHash,
   createHmac,
   randomBytes,
+  randomInt,
   timingSafeEqual
 } from "node:crypto";
 import argon2 from "argon2";
@@ -31,6 +32,12 @@ export const cryptoService = {
 
   randomToken(bytes = 48): string {
     return randomBytes(bytes).toString("base64url");
+  },
+
+  // Generates a fixed-width numeric OTP with Node's cryptographically secure RNG.
+  randomNumericCode(length = 6): string {
+    const upperBound = 10 ** length;
+    return randomInt(0, upperBound).toString().padStart(length, "0");
   },
 
   hashToken(token: string): string {

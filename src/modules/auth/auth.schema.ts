@@ -63,6 +63,15 @@ export const mfaCodeSchema = z.object({
   code: z.string().regex(/^\d{6}$/)
 });
 
+export const emailOtpVerifySchema = z.object({
+  challengeId: z.string().uuid(),
+  code: z.string().regex(/^\d{6}$/)
+});
+
+export const emailOtpResendSchema = z.object({
+  challengeId: z.string().uuid()
+});
+
 export const disableMfaSchema = z.object({
   password: z.string().min(1).max(128),
   code: z.string().regex(/^\d{6}$/)
@@ -81,3 +90,5 @@ export type LoginInput = z.infer<typeof loginSchema>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+export type EmailOtpVerifyInput = z.infer<typeof emailOtpVerifySchema>;
+export type EmailOtpResendInput = z.infer<typeof emailOtpResendSchema>;

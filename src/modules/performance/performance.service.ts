@@ -1,7 +1,6 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "../../core/db.js";
 import {
-  AuthorizationError,
   ConflictError,
   NotFoundError,
   ValidationError
@@ -11,19 +10,16 @@ import {
   organizationIdWhere,
   resolveOrganizationScope
 } from "../../core/organization-scope.js";
+import {
+  authorizationService,
+  type AuthorizationActor
+} from "../../core/authorization.service.js";
 import type { RequestContext } from "../../core/request-context.js";
 import { auditService } from "../audit/audit.service.js";
-import type { AuthorizationAssignment } from "../auth/auth.types.js";
 
 type DatabaseClient = PrismaClient | Prisma.TransactionClient;
 
-interface Actor {
-  tenantId: string | null;
-  userId: string;
-  isPlatformAdmin: boolean;
-  permissions: string[];
-  assignments: AuthorizationAssignment[];
-}
+type Actor = AuthorizationActor;
 
 interface ListInput {
   limit: number;
@@ -594,18 +590,21 @@ export class PerformanceService {
 
   async listReviews(input: ListInput, actor: Actor) {
     const tenantId = resolveTenant(actor, input.tenantId);
-    const canReadScopedReviews = canReadTeamOrTenantPerformance(actor);
-    if (tenantId && input.organizationId && canReadScopedReviews) {
+    if (tenantId && input.organizationId) {
       await assertOrganizationInScope(prisma, actor, tenantId, input.organizationId);
     }
-    const scope = await resolveOrganizationScope(prisma, actor, tenantId);
+    const reviewVisibility = await authorizationService.performanceReviewWhere(
+      prisma,
+      actor,
+      {
+        ...(tenantId ? { tenantId } : {}),
+        ...(input.organizationId ? { organizationId: input.organizationId } : {})
+      }
+    );
     const rows = await prisma.performanceReview.findMany({
       where: {
         deletedAt: null,
-        ...(tenantId ? { tenantId } : {}),
-        ...(input.organizationId && canReadScopedReviews
-          ? { organizationId: input.organizationId }
-          : reviewScopeWhere(scope, actor)),
+        ...reviewVisibility,
         ...(input.cycleId ? { cycleId: input.cycleId } : {}),
         ...(input.employeeUserId ? { employeeUserId: input.employeeUserId } : {}),
         ...(input.managerUserId ? { managerUserId: input.managerUserId } : {}),
@@ -635,7 +634,12 @@ export class PerformanceService {
     await ensureTenantAndOrganization(prisma, tenantId, data.organizationId);
     await assertOrganizationInScope(prisma, actor, tenantId, data.organizationId);
     await ensureMember(prisma, tenantId, data.employeeUserId);
-    await ensureMember(prisma, tenantId, data.managerUserId);
+    const managerUserId = await reviewManagerUserId(
+      prisma,
+      tenantId,
+      data.employeeUserId
+    );
+    await ensureMember(prisma, tenantId, managerUserId);
     await assertReviewDoesNotExist(prisma, tenantId, data.cycleId, data.employeeUserId);
     return prisma.$transaction(async (tx) => {
       const review = await tx.performanceReview.create({
@@ -643,7 +647,7 @@ export class PerformanceService {
           tenantId,
           cycleId: data.cycleId,
           employeeUserId: data.employeeUserId,
-          managerUserId: data.managerUserId ?? null,
+          managerUserId,
           organizationId: data.organizationId ?? null,
           createdBy: actor.userId,
           updatedBy: actor.userId
@@ -681,9 +685,18 @@ export class PerformanceService {
     await ensureTenantAndOrganization(prisma, tenantId, data.organizationId);
     await assertOrganizationInScope(prisma, actor, tenantId, data.organizationId);
     await Promise.all([
-      ...employeeUserIds.map((userId) => ensureMember(prisma, tenantId, userId)),
-      ensureMember(prisma, tenantId, data.managerUserId)
+      ...employeeUserIds.map((userId) => ensureMember(prisma, tenantId, userId))
     ]);
+    const managerByEmployeeId = await reviewManagerUserIds(
+      prisma,
+      tenantId,
+      employeeUserIds
+    );
+    await Promise.all(
+      [...new Set([...managerByEmployeeId.values()].filter(Boolean))].map(
+        (managerUserId) => ensureMember(prisma, tenantId, managerUserId)
+      )
+    );
     const duplicate = await prisma.performanceReview.findFirst({
       where: {
         tenantId,
@@ -708,7 +721,7 @@ export class PerformanceService {
           tenantId,
           cycleId: data.cycleId,
           employeeUserId,
-          managerUserId: data.managerUserId ?? null,
+          managerUserId: managerByEmployeeId.get(employeeUserId) ?? null,
           organizationId: data.organizationId ?? null,
           createdBy: actor.userId,
           updatedBy: actor.userId
@@ -745,7 +758,7 @@ export class PerformanceService {
     context: RequestContext
   ) {
     const review = await findReview(id, actor);
-    assertSelfOrReviewer(actor, review.employeeUserId);
+    authorizationService.assertCanSubmitSelfAssessment(actor, review);
     return prisma.$transaction(async (tx) => {
       const updated = await tx.performanceReview.update({
         where: { id },
@@ -786,6 +799,7 @@ export class PerformanceService {
     context: RequestContext
   ) {
     const review = await findReview(id, actor);
+    authorizationService.assertCanSubmitManagerAssessment(actor, review);
     return prisma.$transaction(async (tx) => {
       const updated = await tx.performanceReview.update({
         where: { id },
@@ -830,7 +844,7 @@ export class PerformanceService {
     context: RequestContext
   ) {
     const review = await findReview(reviewId, actor);
-    assertSelfOrReviewer(actor, review.employeeUserId);
+    await authorizationService.assertCanAttachEvidence(actor, review);
     if (data.kpiId) await ensureKpi(prisma, review.tenantId, data.kpiId);
     return prisma.$transaction(async (tx) => {
       const evidence = await tx.performanceEvidence.create({
@@ -869,40 +883,61 @@ export class PerformanceService {
       await assertOrganizationInScope(prisma, actor, tenantId, input.organizationId);
     }
     const scope = await resolveOrganizationScope(prisma, actor, tenantId);
-    const organizationWhere = input.organizationId
+    const canReadScopedReviews = canReadTeamOrTenantPerformance(actor);
+    const organizationWhere = input.organizationId && canReadScopedReviews
       ? { organizationId: input.organizationId }
       : organizationIdWhere(scope);
+    const reviewWhere: Prisma.PerformanceReviewWhereInput = {
+      deletedAt: null,
+      ...(await authorizationService.performanceReviewWhere(prisma, actor, {
+        tenantId,
+        ...(input.organizationId ? { organizationId: input.organizationId } : {})
+      })),
+      ...(input.cycleId ? { cycleId: input.cycleId } : {})
+    };
+    const scopedCycleIds = canReadScopedReviews
+      ? null
+      : (
+          await prisma.performanceReview.findMany({
+            where: reviewWhere,
+            distinct: ["cycleId"],
+            select: { cycleId: true }
+          })
+        ).map((review) => review.cycleId);
+    const limitedCycleWhere = scopedCycleIds
+      ? { id: { in: scopedCycleIds } }
+      : {};
+    const limitedGoalCycleWhere = scopedCycleIds
+      ? { cycleId: { in: scopedCycleIds } }
+      : {};
     const [cycles, goals, reviews, approved, averageScore] = await Promise.all([
       prisma.performanceReviewCycle.count({
-        where: { tenantId, deletedAt: null, ...organizationWhere }
-      }),
-      prisma.performanceGoal.count({
-        where: { tenantId, deletedAt: null, ...organizationWhere }
-      }),
-      prisma.performanceReview.count({
         where: {
           tenantId,
           deletedAt: null,
-          ...organizationWhere,
-          ...(input.cycleId ? { cycleId: input.cycleId } : {})
+          ...(scopedCycleIds ? limitedCycleWhere : organizationWhere)
+        }
+      }),
+      prisma.performanceGoal.count({
+        where: {
+          tenantId,
+          deletedAt: null,
+          ...(scopedCycleIds ? limitedGoalCycleWhere : organizationWhere)
         }
       }),
       prisma.performanceReview.count({
+        where: reviewWhere
+      }),
+      prisma.performanceReview.count({
         where: {
-          tenantId,
-          deletedAt: null,
+          ...reviewWhere,
           status: "APPROVED",
-          ...organizationWhere,
-          ...(input.cycleId ? { cycleId: input.cycleId } : {})
         }
       }),
       prisma.performanceReview.aggregate({
         where: {
-          tenantId,
-          deletedAt: null,
+          ...reviewWhere,
           finalScore: { not: null },
-          ...organizationWhere,
-          ...(input.cycleId ? { cycleId: input.cycleId } : {})
         },
         _avg: { finalScore: true }
       })
@@ -1015,13 +1050,20 @@ async function findKpi(id: string, actor: Actor) {
 }
 
 async function findReview(id: string, actor: Actor) {
-  const scope = await resolveOrganizationScope(prisma, actor, tenantWhere(actor).tenantId);
+  const reviewVisibility = await authorizationService.performanceReviewWhere(
+    prisma,
+    actor,
+    {
+      ...(tenantWhere(actor).tenantId
+        ? { tenantId: tenantWhere(actor).tenantId }
+        : {})
+    }
+  );
   const review = await prisma.performanceReview.findFirst({
     where: {
       id,
       deletedAt: null,
-      ...tenantWhere(actor),
-      ...reviewScopeWhere(scope, actor)
+      ...reviewVisibility
     },
     include: reviewInclude
   });
@@ -1088,6 +1130,49 @@ async function ensureMember(
       }
     ]);
   }
+}
+
+async function reviewManagerUserId(
+  db: DatabaseClient,
+  tenantId: string,
+  employeeUserId: string
+): Promise<string | null> {
+  const managerByEmployeeId = await reviewManagerUserIds(db, tenantId, [
+    employeeUserId
+  ]);
+  return managerByEmployeeId.get(employeeUserId) ?? null;
+}
+
+async function reviewManagerUserIds(
+  db: DatabaseClient,
+  tenantId: string,
+  employeeUserIds: string[]
+): Promise<Map<string, string | null>> {
+  const employees = await db.user.findMany({
+    where: {
+      id: { in: employeeUserIds },
+      deletedAt: null,
+      memberships: { some: { tenantId, status: "ACTIVE", deletedAt: null } }
+    },
+    select: { id: true, preferences: true }
+  });
+  return new Map(
+    employees.map((employee) => [
+      employee.id,
+      reportingManagerUserId(employee.preferences)
+    ])
+  );
+}
+
+function reportingManagerUserId(value: Prisma.JsonValue): string | null {
+  const managerUserId = preferencesObject(value).reportingManagerUserId;
+  return typeof managerUserId === "string" && managerUserId ? managerUserId : null;
+}
+
+function preferencesObject(value: Prisma.JsonValue): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? { ...(value as Record<string, unknown>) }
+    : {};
 }
 
 async function ensureKpi(db: DatabaseClient, tenantId: string, kpiId: string) {
@@ -1175,12 +1260,6 @@ async function assertNoActivePerformanceEvidence(
   }
 }
 
-function assertSelfOrReviewer(actor: Actor, employeeUserId: string): void {
-  if (actor.isPlatformAdmin || actor.userId === employeeUserId) return;
-  if (actor.tenantId) return;
-  throw new AuthorizationError();
-}
-
 function nullableDecimal(value: number | null | undefined) {
   return value === undefined || value === null ? null : new Prisma.Decimal(value);
 }
@@ -1214,61 +1293,22 @@ function resolveTenant(
   actor: Actor,
   requestedTenantId: string | undefined
 ): string | undefined {
-  if (actor.isPlatformAdmin) return requestedTenantId ?? actor.tenantId ?? undefined;
-  const tenantId = requireActorTenant(actor);
-  if (requestedTenantId && requestedTenantId !== tenantId) {
-    throw new AuthorizationError("Cross-tenant access is forbidden.");
-  }
-  return tenantId;
+  return authorizationService.resolveTenant(actor, requestedTenantId) ?? undefined;
 }
 
 function resolveRequiredTenant(
   actor: Actor,
   requestedTenantId: string | undefined
 ): string {
-  const tenantId = resolveTenant(actor, requestedTenantId);
-  if (!tenantId) {
-    throw new ValidationError([
-      {
-        field: "tenantId",
-        code: "custom",
-        message: "A tenant must be selected."
-      }
-    ]);
-  }
-  return tenantId;
+  return authorizationService.resolveRequiredTenant(actor, requestedTenantId);
 }
 
 function requireActorTenant(actor: Actor): string {
-  if (!actor.tenantId) {
-    throw new AuthorizationError("An active tenant context is required.");
-  }
-  return actor.tenantId;
+  return authorizationService.requireActorTenant(actor);
 }
 
 function tenantWhere(actor: Actor): { tenantId?: string } {
-  if (actor.isPlatformAdmin) {
-    return actor.tenantId ? { tenantId: actor.tenantId } : {};
-  }
-  return { tenantId: requireActorTenant(actor) };
-}
-
-function reviewScopeWhere(
-  scope: Awaited<ReturnType<typeof resolveOrganizationScope>>,
-  actor: Actor
-): Prisma.PerformanceReviewWhereInput {
-  if (!canReadTeamOrTenantPerformance(actor)) {
-    return { employeeUserId: actor.userId };
-  }
-
-  if (scope.tenantWide) return {};
-  return {
-    OR: [
-      { organizationId: { in: scope.organizationIds } },
-      { employeeUserId: actor.userId },
-      { managerUserId: actor.userId }
-    ]
-  };
+  return authorizationService.tenantWhere(actor);
 }
 
 function canReadTeamOrTenantPerformance(actor: Actor): boolean {

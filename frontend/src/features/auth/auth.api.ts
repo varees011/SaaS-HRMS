@@ -3,6 +3,7 @@ import type {
   ApiEnvelope,
   AuthTokens,
   CurrentUser,
+  LoginResponse,
   LoginTenant,
   MfaSetup,
   SessionPage
@@ -25,9 +26,32 @@ export const authApi = {
   },
 
   async login(input: LoginInput) {
-    const response = await apiRequest<ApiEnvelope<AuthTokens>>("/auth/login", {
+    const response = await apiRequest<ApiEnvelope<LoginResponse>>("/auth/login", {
       method: "POST",
       body: input,
+      authenticate: false
+    });
+    return response.data;
+  },
+
+  async verifyEmailOtp(input: { challengeId: string; code: string }) {
+    const response = await apiRequest<ApiEnvelope<AuthTokens>>(
+      "/auth/otp/verify",
+      {
+        method: "POST",
+        body: input,
+        authenticate: false
+      }
+    );
+    return response.data;
+  },
+
+  async resendEmailOtp(challengeId: string) {
+    const response = await apiRequest<
+      ApiEnvelope<{ expiresIn: number; resendAfterSeconds: number }>
+    >("/auth/otp/resend", {
+      method: "POST",
+      body: { challengeId },
       authenticate: false
     });
     return response.data;

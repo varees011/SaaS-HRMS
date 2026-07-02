@@ -4,6 +4,23 @@ export interface AuthTokens {
   expiresIn: number;
 }
 
+export interface LoginOtpRequired {
+  otpRequired: true;
+  challengeId: string;
+  expiresIn: number;
+  resendAfterSeconds: number;
+  email: string;
+}
+
+export interface LoginSuccess {
+  otpRequired?: false;
+  accessToken: string;
+  tokenType: "Bearer";
+  expiresIn: number;
+}
+
+export type LoginResponse = LoginSuccess | LoginOtpRequired;
+
 export interface LoginTenant {
   id: string;
   code: string;

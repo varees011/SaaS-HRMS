@@ -7,16 +7,21 @@ import { useAuthStore } from "@/features/auth/auth.store";
 import type { CurrentUser } from "@/features/auth/auth.types";
 import { LoginPage } from "./login-page";
 
-const { loginMock, meMock, tenantsMock } = vi.hoisted(() => ({
-  loginMock: vi.fn(),
-  meMock: vi.fn(),
-  tenantsMock: vi.fn()
-}));
+const { loginMock, meMock, resendEmailOtpMock, tenantsMock, verifyEmailOtpMock } =
+  vi.hoisted(() => ({
+    loginMock: vi.fn(),
+    meMock: vi.fn(),
+    resendEmailOtpMock: vi.fn(),
+    tenantsMock: vi.fn(),
+    verifyEmailOtpMock: vi.fn()
+  }));
 
 vi.mock("@/features/auth/auth.api", () => ({
   authApi: {
     tenants: tenantsMock,
     login: loginMock,
+    verifyEmailOtp: verifyEmailOtpMock,
+    resendEmailOtp: resendEmailOtpMock,
     me: meMock
   }
 }));
@@ -85,7 +90,7 @@ describe("login page flow", () => {
 
     renderLoginPage();
 
-    fireEvent.click(screen.getByRole("button", { name: "Platform" }));
+    fireEvent.click(screen.getByRole("button", { name: "Platform login" }));
     fireEvent.change(screen.getByLabelText("Email"), {
       target: { value: "superadmin@venturesoft.ai" }
     });
@@ -127,9 +132,10 @@ describe("login page flow", () => {
     await waitFor(() => {
       expect(screen.getByRole("option", { name: "VentureSoft.AI (venturesoft)" })).toBeTruthy();
     });
-
-    fireEvent.change(screen.getByLabelText("Organization"), {
-      target: { value: "venturesoft" }
+    await waitFor(() => {
+      expect((screen.getByLabelText("Organization") as HTMLSelectElement).value).toBe(
+        "venturesoft"
+      );
     });
     fireEvent.change(screen.getByLabelText("Email or user ID"), {
       target: { value: "employee@venturesoft.ai" }
@@ -148,5 +154,66 @@ describe("login page flow", () => {
       tenant: "venturesoft"
     });
     expect(window.localStorage.getItem("hrms_last_tenant")).toBe("venturesoft");
+  });
+
+  it("shows email OTP verification before creating the session", async () => {
+    loginMock.mockResolvedValue({
+      otpRequired: true,
+      challengeId: "a8cb6d5e-65f4-491e-9cd3-0c4a7d3df0da",
+      expiresIn: 300,
+      resendAfterSeconds: 30,
+      email: "su********@venturesoft.ai"
+    });
+    verifyEmailOtpMock.mockResolvedValue({
+      accessToken: "otp-access-token",
+      tokenType: "Bearer",
+      expiresIn: 900
+    });
+    meMock.mockResolvedValue(platformUser);
+
+    renderLoginPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Platform login" }));
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "superadmin@venturesoft.ai" }
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "Strong-Password-123!" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Verification code")).toBeTruthy();
+    });
+    expect(
+      (screen.getByRole("button", { name: "Resend OTP in 30s" }) as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
+
+    fireEvent.change(screen.getByLabelText("Verification code"), {
+      target: { value: "123456" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Verify" }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Dashboard loaded").length).toBeGreaterThan(0);
+    });
+    expect(verifyEmailOtpMock).toHaveBeenCalledWith({
+      challengeId: "a8cb6d5e-65f4-491e-9cd3-0c4a7d3df0da",
+      code: "123456"
+    });
+  });
+
+  it("shows an organization load error when the tenants endpoint fails", async () => {
+    tenantsMock.mockRejectedValue(new Error("API unavailable"));
+
+    renderLoginPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toContain(
+        "Unable to load organizations"
+      );
+    });
+    expect(screen.getByRole("option", { name: "Unable to load organizations" })).toBeTruthy();
   });
 });

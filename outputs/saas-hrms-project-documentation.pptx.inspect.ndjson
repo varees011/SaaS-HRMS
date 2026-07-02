@@ -1,0 +1,212 @@
+{"kind":"deck","id":"pr/297vrn","name":"Deck"}
+{"kind":"layout","layoutId":"1ab05650-6bc9-45e1-85ca-32b2604c9df2","name":"Master","type":"master"}
+{"kind":"layout","layoutId":"808a0ecb-fa08-4c21-9cc3-be79750a54ba","name":"Title Slide","type":"title"}
+{"kind":"slide","id":"sl/86dt35","slide":1,"title":"Project documentation","textShapes":5}
+{"kind":"textbox","id":"sh/4nap4r65","slide":1,"text":"Project documentation","textPreview":"Project documentation","textChars":21,"textLines":1,"bbox":[41,36,360,28]}
+{"kind":"textbox","id":"sh/b2hwfyxo","slide":1,"text":"SaaS HRMS Project Documentation","textPreview":"SaaS HRMS Project Documentation","textChars":31,"textLines":1,"bbox":[41,150,840,210]}
+{"kind":"textbox","id":"sh/mhk3q5o7","slide":1,"text":"Phase 1 SaaS HRMS performance management system\nExpress API, Prisma/PostgreSQL, React/Vite web portal","textPreview":"Phase 1 SaaS HRMS performance management system | Express API, Prisma/PostgreSQL, React/Vite web portal","textChars":101,"textLines":2,"bbox":[41,430,560,110]}
+{"kind":"shape","id":"sh/twra5gbq","slide":1,"bbox":[864,0,375,720]}
+{"kind":"textbox","id":"sh/4byhgn29","slide":1,"text":"Current implementation\nas of 2026-07-02","textPreview":"Current implementation | as of 2026-07-02","textChars":39,"textLines":2,"bbox":[906,510,250,90]}
+{"kind":"textbox","id":"sh/bq1oryts","slide":1,"text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[1184,659,54,25]}
+{"kind":"notes","id":"nt/86dt35","slide":1,"text":""}
+{"kind":"slide","id":"sl/86c2u1","slide":2,"title":"Repository snapshot","textShapes":13}
+{"kind":"textbox","id":"sh/x0nuxc3y","slide":2,"text":"Repository snapshot","textPreview":"Repository snapshot","textChars":19,"textLines":1,"bbox":[41,36,220,24]}
+{"kind":"textbox","id":"sh/m94fu18j","slide":2,"text":"The current codebase is a modular monolith with a React portal","textPreview":"The current codebase is a modular monolith with a React portal","textChars":62,"textLines":1,"bbox":[41,74,720,110]}
+{"kind":"textbox","id":"sh/fu18jqh0","slide":2,"text":"The numbers below describe the repository shape, not a future roadmap: they are derived from the current folders, Prisma schema, migrations, and test files.","textPreview":"The numbers below describe the repository shape, not a future roadmap: they are derived from the current folders, Prisma schema, migratio...","textChars":156,"textLines":1,"bbox":[657,78,582,92]}
+{"kind":"shape","id":"sh/83itgfml","slide":2,"bbox":[41,246,271,230]}
+{"kind":"textbox","id":"sh/xobm58z2","slide":2,"text":"5","textPreview":"5","textChars":1,"textLines":1,"bbox":[66,274,220,80]}
+{"kind":"textbox","id":"sh/qxs72x4n","slide":2,"text":"backend modules","textPreview":"backend modules","textChars":15,"textLines":1,"bbox":[66,384,220,58]}
+{"kind":"shape","id":"sh/fil0rqd4","slide":2,"bbox":[351,246,271,230]}
+{"kind":"textbox","id":"sh/4zidonyd","slide":2,"text":"6","textPreview":"6","textChars":1,"textLines":1,"bbox":[376,274,220,80]}
+{"kind":"textbox","id":"sh/xkf6dcbu","slide":2,"text":"frontend feature areas","textPreview":"frontend feature areas","textChars":22,"textLines":1,"bbox":[376,384,220,58]}
+{"kind":"shape","id":"sh/1kre1w7m","slide":2,"bbox":[661,246,271,230]}
+{"kind":"textbox","id":"sh/c3ylc7u5","slide":2,"text":"20","textPreview":"20","textChars":2,"textLines":1,"bbox":[686,274,220,80]}
+{"kind":"textbox","id":"sh/ji5snelo","slide":2,"text":"Prisma models","textPreview":"Prisma models","textChars":13,"textLines":1,"bbox":[686,384,220,58]}
+{"kind":"shape","id":"sh/uxc3ylc7","slide":2,"bbox":[971,246,271,230]}
+{"kind":"textbox","id":"sh/1cfa9w3m","slide":2,"text":"11","textPreview":"11","textChars":2,"textLines":1,"bbox":[996,274,220,80]}
+{"kind":"textbox","id":"sh/crmhk3q5","slide":2,"text":"Prisma enums","textPreview":"Prisma enums","textChars":12,"textLines":1,"bbox":[996,384,220,58]}
+{"kind":"shape","id":"sh/j6tovaho","slide":2,"bbox":[0,565,1280,156]}
+{"kind":"textbox","id":"sh/ulwval87","slide":2,"text":"9 migrations and 8 test files are present; `pnpm verify` is the release gate that ties typechecking, tests, and builds together.","textPreview":"9 migrations and 8 test files are present; `pnpm verify` is the release gate that ties typechecking, tests, and builds together.","textChars":128,"textLines":1,"bbox":[41,604,960,48]}
+{"kind":"textbox","id":"sh/18jqh0fe","slide":2,"text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[1184,659,54,25]}
+{"kind":"notes","id":"nt/86c2u1","slide":2,"text":""}
+{"kind":"slide","id":"sl/a9h0ao","slide":3,"title":"Phase 1 scope","textShapes":12}
+{"kind":"textbox","id":"sh/c7u54zid","slide":3,"text":"Phase 1 scope","textPreview":"Phase 1 scope","textChars":13,"textLines":1,"bbox":[41,36,220,24]}
+{"kind":"textbox","id":"sh/jm1cfa9w","slide":3,"text":"The implemented product is focused on tenant-aware performance management","textPreview":"The implemented product is focused on tenant-aware performance management","textChars":73,"textLines":1,"bbox":[41,96,760,150]}
+{"kind":"textbox","id":"sh/u18jqh0f","slide":3,"text":"Phase 1 covers authentication, tenant and organization administration, role and permission management, performance reviews, audit events, a React portal, a PostgreSQL-backed API, and automated verification gates.","textPreview":"Phase 1 covers authentication, tenant and organization administration, role and permission management, performance reviews, audit events,...","textChars":212,"textLines":1,"bbox":[41,270,650,250]}
+{"kind":"shape","id":"sh/1032lszq","slide":3,"bbox":[828,112,374,88]}
+{"kind":"textbox","id":"sh/cfa9w3m9","slide":3,"text":"Backend","textPreview":"Backend","textChars":7,"textLines":1,"bbox":[858,130,320,28]}
+{"kind":"textbox","id":"sh/judg7ads","slide":3,"text":"Express, TypeScript ESM, Prisma, PostgreSQL, Pino, Zod, Vitest.","textPreview":"Express, TypeScript ESM, Prisma, PostgreSQL, Pino, Zod, Vitest.","textChars":63,"textLines":1,"bbox":[858,164,320,38]}
+{"kind":"shape","id":"sh/u9knih4b","slide":3,"bbox":[828,228,374,88]}
+{"kind":"textbox","id":"sh/54zidony","slide":3,"text":"Frontend","textPreview":"Frontend","textChars":8,"textLines":1,"bbox":[858,246,320,28]}
+{"kind":"textbox","id":"sh/cj6tovah","slide":3,"text":"React, Vite, Router, TanStack Query, React Hook Form, Zustand.","textPreview":"React, Vite, Router, TanStack Query, React Hook Form, Zustand.","textChars":62,"textLines":1,"bbox":[858,280,320,38]}
+{"kind":"shape","id":"sh/ex0nuxc3","slide":3,"bbox":[828,344,374,88]}
+{"kind":"textbox","id":"sh/3itgfmlk","slide":3,"text":"In scope","textPreview":"In scope","textChars":8,"textLines":1,"bbox":[858,362,320,28]}
+{"kind":"textbox","id":"sh/w3m94fu1","slide":3,"text":"Auth, admin, RBAC, audit, performance management, web portal.","textPreview":"Auth, admin, RBAC, audit, performance management, web portal.","textChars":61,"textLines":1,"bbox":[858,396,320,38]}
+{"kind":"shape","id":"sh/loj2t83i","slide":3,"bbox":[828,460,374,88]}
+{"kind":"textbox","id":"sh/e9cvixcz","slide":3,"text":"Out of scope","textPreview":"Out of scope","textChars":12,"textLines":1,"bbox":[858,478,320,28]}
+{"kind":"textbox","id":"sh/3q5o7qpg","slide":3,"text":"Mobile, GraphQL, Kafka, payroll, recruitment, SSO, SCIM, Kubernetes.","textPreview":"Mobile, GraphQL, Kafka, payroll, recruitment, SSO, SCIM, Kubernetes.","textChars":68,"textLines":1,"bbox":[858,512,320,38]}
+{"kind":"textbox","id":"sh/wb2hwfyx","slide":3,"text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[1184,659,54,25]}
+{"kind":"notes","id":"nt/a9h0ao","slide":3,"text":""}
+{"kind":"slide","id":"sl/u452yr","slide":4,"title":"Runtime flow","textShapes":19}
+{"kind":"textbox","id":"sh/p4r65wju","slide":4,"text":"Runtime flow","textPreview":"Runtime flow","textChars":12,"textLines":1,"bbox":[41,36,220,24]}
+{"kind":"textbox","id":"sh/ed8v6psf","slide":4,"text":"Requests move through guards before domain services touch data","textPreview":"Requests move through guards before domain services touch data","textChars":62,"textLines":1,"bbox":[41,74,920,72]}
+{"kind":"shape","id":"sh/7y1kre1w","slide":4,"bbox":[41,236,204,218]}
+{"kind":"textbox","id":"sh/0bi9s36h","slide":4,"text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[59,256,50,28]}
+{"kind":"textbox","id":"sh/pwb2hwfy","slide":4,"text":"React/Vite web","textPreview":"React/Vite web","textChars":14,"textLines":1,"bbox":[59,300,168,54]}
+{"kind":"textbox","id":"sh/i5sneloj","slide":4,"text":"Route guards and API client attach access context.","textPreview":"Route guards and API client attach access context.","textChars":50,"textLines":1,"bbox":[59,370,168,68]}
+{"kind":"shape","id":"sh/7qpg3ex0","slide":4,"bbox":[253,338,36,2]}
+{"kind":"shape","id":"sh/0z61032l","slide":4,"bbox":[279,236,204,218]}
+{"kind":"textbox","id":"sh/pkzupwb2","slide":4,"text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[297,256,50,28]}
+{"kind":"textbox","id":"sh/5sneloj2","slide":4,"text":"Express API","textPreview":"Express API","textChars":11,"textLines":1,"bbox":[297,300,168,54]}
+{"kind":"textbox","id":"sh/cbulwval","slide":4,"text":"Helmet, CORS, JSON limits, cookies, request context, logging.","textPreview":"Helmet, CORS, JSON limits, cookies, request context, logging.","textChars":61,"textLines":1,"bbox":[297,370,168,68]}
+{"kind":"shape","id":"sh/nqxs72x4","slide":4,"bbox":[491,338,36,2]}
+{"kind":"shape","id":"sh/u54zidon","slide":4,"bbox":[517,236,204,218]}
+{"kind":"textbox","id":"sh/5kb6xkf6","slide":4,"text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[535,256,50,28]}
+{"kind":"textbox","id":"sh/czed8v6p","slide":4,"text":"Auth and RBAC","textPreview":"Auth and RBAC","textChars":13,"textLines":1,"bbox":[535,300,168,54]}
+{"kind":"textbox","id":"sh/neloj2t8","slide":4,"text":"JWT verification, tenant access, permission checks, MFA claims.","textPreview":"JWT verification, tenant access, permission checks, MFA claims.","textChars":63,"textLines":1,"bbox":[535,370,168,68]}
+{"kind":"shape","id":"sh/ytsvu9kn","slide":4,"bbox":[729,338,36,2]}
+{"kind":"shape","id":"sh/58z25kb6","slide":4,"bbox":[755,236,204,218]}
+{"kind":"textbox","id":"sh/gn29gr2p","slide":4,"text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[773,256,50,28]}
+{"kind":"textbox","id":"sh/cvixczed","slide":4,"text":"Module services","textPreview":"Module services","textChars":15,"textLines":1,"bbox":[773,300,168,54]}
+{"kind":"textbox","id":"sh/5gbq1ory","slide":4,"text":"Auth, admin, performance, audit, and RBAC own behavior.","textPreview":"Auth, admin, performance, audit, and RBAC own behavior.","textChars":55,"textLines":1,"bbox":[773,370,168,68]}
+{"kind":"shape","id":"sh/upwb2hwf","slide":4,"bbox":[967,338,36,2]}
+{"kind":"shape","id":"sh/nap4r65w","slide":4,"bbox":[993,236,204,218]}
+{"kind":"textbox","id":"sh/cj6tovah","slide":4,"text":"05","textPreview":"05","textChars":2,"textLines":1,"bbox":[1011,256,50,28]}
+{"kind":"textbox","id":"sh/54zidony","slide":4,"text":"Prisma/Postgres","textPreview":"Prisma/Postgres","textChars":15,"textLines":1,"bbox":[1011,300,168,54]}
+{"kind":"textbox","id":"sh/udg7adsj","slide":4,"text":"Tenant-owned records are filtered in application code today.","textPreview":"Tenant-owned records are filtered in application code today.","textChars":60,"textLines":1,"bbox":[1011,370,168,68]}
+{"kind":"textbox","id":"sh/nyd0z610","slide":4,"text":"Primary API roots: `/health/live`, `/api/v1/auth`, `/api/v1/admin`, `/api/v1/performance`.","textPreview":"Primary API roots: `/health/live`, `/api/v1/auth`, `/api/v1/admin`, `/api/v1/performance`.","textChars":90,"textLines":1,"bbox":[41,560,820,48]}
+{"kind":"textbox","id":"sh/cfa9w3m9","slide":4,"text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[1184,659,54,25]}
+{"kind":"notes","id":"nt/u452yr","slide":4,"text":""}
+{"kind":"slide","id":"sl/qbf8v4","slide":5,"title":"Backend ownership","textShapes":10}
+{"kind":"textbox","id":"sh/re1w7mp0","slide":5,"text":"Backend ownership","textPreview":"Backend ownership","textChars":17,"textLines":1,"bbox":[41,36,220,24]}
+{"kind":"textbox","id":"sh/kzupwb2h","slide":5,"text":"Backend modules stay flat and ownership is explicit","textPreview":"Backend modules stay flat and ownership is explicit","textChars":51,"textLines":1,"bbox":[41,74,790,70]}
+{"kind":"textbox","id":"sh/9knih4by","slide":5,"text":"`src/core` owns shared infrastructure. Feature behavior lives in `src/modules/<module>` with route, controller, service, schema, and boundary exports.","textPreview":"`src/core` owns shared infrastructure. Feature behavior lives in `src/modules/<module>` with route, controller, service, schema, and boun...","textChars":150,"textLines":1,"bbox":[41,154,1150,64]}
+{"kind":"shape","id":"sh/25kb6xkf","slide":5,"bbox":[41,250,360,300]}
+{"kind":"shape","id":"sh/rqd4vmtw","slide":5,"bbox":[65,278,26,26]}
+{"kind":"textbox","id":"sh/kb6xkf6d","slide":5,"text":"Identity","textPreview":"Identity","textChars":8,"textLines":1,"bbox":[65,328,312,38]}
+{"kind":"textbox","id":"sh/9w3m94fu","slide":5,"text":"Auth owns login, email OTP, refresh sessions, logout, password reset, MFA setup, profile, and session management.","textPreview":"Auth owns login, email OTP, refresh sessions, logout, password reset, MFA setup, profile, and session management.","textChars":113,"textLines":1,"bbox":[65,384,312,126]}
+{"kind":"shape","id":"sh/2hwfyxob","slide":5,"bbox":[453,250,360,300]}
+{"kind":"shape","id":"sh/r2p8nqxs","slide":5,"bbox":[477,278,26,26]}
+{"kind":"textbox","id":"sh/7ed8bat4","slide":5,"text":"Admin platform","textPreview":"Admin platform","textChars":14,"textLines":1,"bbox":[477,328,312,38]}
+{"kind":"textbox","id":"sh/itgfmlkj","slide":5,"text":"Admin owns tenants, organizations, users, roles, permissions, assignments, and archive behavior.","textPreview":"Admin owns tenants, organizations, users, roles, permissions, assignments, and archive behavior.","textChars":96,"textLines":1,"bbox":[477,384,312,126]}
+{"kind":"shape","id":"sh/pkzupwb2","slide":5,"bbox":[865,250,360,300]}
+{"kind":"shape","id":"sh/0z61032l","slide":5,"bbox":[889,278,26,26]}
+{"kind":"textbox","id":"sh/72x4nap4","slide":5,"text":"Performance","textPreview":"Performance","textChars":11,"textLines":1,"bbox":[889,328,312,38]}
+{"kind":"textbox","id":"sh/ih4byhgn","slide":5,"text":"Performance owns review cycles, goals, KRAs, KPIs, review submissions, progress, and evidence links.","textPreview":"Performance owns review cycles, goals, KRAs, KPIs, review submissions, progress, and evidence links.","textChars":100,"textLines":1,"bbox":[889,384,312,126]}
+{"kind":"textbox","id":"sh/p8nqxs72","slide":5,"text":"05","textPreview":"05","textChars":2,"textLines":1,"bbox":[1184,659,54,25]}
+{"kind":"notes","id":"nt/qbf8v4","slide":5,"text":""}
+{"kind":"slide","id":"sl/iv15t5","slide":6,"title":"Frontend map","textShapes":10}
+{"kind":"textbox","id":"sh/wjudg7ad","slide":6,"text":"Frontend map","textPreview":"Frontend map","textChars":12,"textLines":1,"bbox":[41,36,220,24]}
+{"kind":"textbox","id":"sh/7y1kre1w","slide":6,"text":"The web app mirrors product areas and keeps shared UI separate","textPreview":"The web app mirrors product areas and keeps shared UI separate","textChars":62,"textLines":1,"bbox":[41,74,790,70]}
+{"kind":"textbox","id":"sh/ed8v6psf","slide":6,"text":"Feature folders own screens and API clients. Shared primitives, forms, and small utilities live under `frontend/src/shared`.","textPreview":"Feature folders own screens and API clients. Shared primitives, forms, and small utilities live under `frontend/src/shared`.","textChars":124,"textLines":1,"bbox":[41,154,1150,64]}
+{"kind":"shape","id":"sh/pwb2hwfy","slide":6,"bbox":[41,250,360,300]}
+{"kind":"shape","id":"sh/0bi9s36h","slide":6,"bbox":[65,278,26,26]}
+{"kind":"textbox","id":"sh/7qpg3ex0","slide":6,"text":"Access first","textPreview":"Access first","textChars":12,"textLines":1,"bbox":[65,328,312,38]}
+{"kind":"textbox","id":"sh/i5sneloj","slide":6,"text":"Auth bootstrap, route guards, permission guards, login, forgot password, reset password, and local auth store.","textPreview":"Auth bootstrap, route guards, permission guards, login, forgot password, reset password, and local auth store.","textChars":110,"textLines":1,"bbox":[65,384,312,126]}
+{"kind":"shape","id":"sh/pkzupwb2","slide":6,"bbox":[453,250,360,300]}
+{"kind":"shape","id":"sh/0z61032l","slide":6,"bbox":[477,278,26,26]}
+{"kind":"textbox","id":"sh/qpg3ex0n","slide":6,"text":"Product screens","textPreview":"Product screens","textChars":15,"textLines":1,"bbox":[477,328,312,38]}
+{"kind":"textbox","id":"sh/fa9w3m94","slide":6,"text":"Dashboard, admin pages, performance page, and self-service profile, security, and sessions views.","textPreview":"Dashboard, admin pages, performance page, and self-service profile, security, and sessions views.","textChars":97,"textLines":1,"bbox":[477,384,312,126]}
+{"kind":"shape","id":"sh/8v6psfil","slide":6,"bbox":[865,250,360,300]}
+{"kind":"shape","id":"sh/xczed8v6","slide":6,"bbox":[889,278,26,26]}
+{"kind":"textbox","id":"sh/qd4vmtwr","slide":6,"text":"Shared base","textPreview":"Shared base","textChars":11,"textLines":1,"bbox":[889,328,312,38]}
+{"kind":"textbox","id":"sh/fyxobm58","slide":6,"text":"HTTP client, forms, inputs, cards, tables, dialogs, badges, date formatting, initials, and class merging.","textPreview":"HTTP client, forms, inputs, cards, tables, dialogs, badges, date formatting, initials, and class merging.","textChars":105,"textLines":1,"bbox":[889,384,312,126]}
+{"kind":"textbox","id":"sh/8jqh0fep","slide":6,"text":"06","textPreview":"06","textChars":2,"textLines":1,"bbox":[1184,659,54,25]}
+{"kind":"notes","id":"nt/iv15t5","slide":6,"text":""}
+{"kind":"slide","id":"sl/l251lu","slide":7,"title":"Data model","textShapes":14}
+{"kind":"textbox","id":"sh/j6tovaho","slide":7,"text":"Data model","textPreview":"Data model","textChars":10,"textLines":1,"bbox":[41,36,220,24]}
+{"kind":"textbox","id":"sh/crmhk3q5","slide":7,"text":"The schema is centered on tenant identity, access, and performance reviews","textPreview":"The schema is centered on tenant identity, access, and performance reviews","textChars":74,"textLines":1,"bbox":[41,74,900,90]}
+{"kind":"shape","id":"sh/1cfa9w3m","slide":7,"bbox":[41,210,560,94]}
+{"kind":"textbox","id":"sh/uxc3ylc7","slide":7,"text":"Tenant core","textPreview":"Tenant core","textChars":11,"textLines":1,"bbox":[65,228,220,30]}
+{"kind":"textbox","id":"sh/ji5snelo","slide":7,"text":"Tenant, Organization, TenantMembership, HrmsRecord","textPreview":"Tenant, Organization, TenantMembership, HrmsRecord","textChars":50,"textLines":1,"bbox":[65,262,500,28]}
+{"kind":"shape","id":"sh/c3ylc7u5","slide":7,"bbox":[651,210,560,94]}
+{"kind":"textbox","id":"sh/1kre1w7m","slide":7,"text":"Identity","textPreview":"Identity","textChars":8,"textLines":1,"bbox":[675,228,220,30]}
+{"kind":"textbox","id":"sh/q5o7qpg3","slide":7,"text":"User, AuthSession, PasswordResetToken, LoginOtp","textPreview":"User, AuthSession, PasswordResetToken, LoginOtp","textChars":47,"textLines":1,"bbox":[675,262,500,28]}
+{"kind":"shape","id":"sh/jqh0fepk","slide":7,"bbox":[41,340,560,94]}
+{"kind":"textbox","id":"sh/fmlkjm1c","slide":7,"text":"Access","textPreview":"Access","textChars":6,"textLines":1,"bbox":[65,358,220,30]}
+{"kind":"textbox","id":"sh/q1orytsv","slide":7,"text":"Role, Permission, RolePermission, RoleAssignment","textPreview":"Role, Permission, RolePermission, RoleAssignment","textChars":48,"textLines":1,"bbox":[65,392,500,28]}
+{"kind":"shape","id":"sh/xs72x4na","slide":7,"bbox":[651,340,560,94]}
+{"kind":"textbox","id":"sh/87ed8bat","slide":7,"text":"Performance","textPreview":"Performance","textChars":11,"textLines":1,"bbox":[675,358,220,30]}
+{"kind":"textbox","id":"sh/je9cvixc","slide":7,"text":"ReviewCycle, Goal, KRA, KPI, Review, Evidence","textPreview":"ReviewCycle, Goal, KRA, KPI, Review, Evidence","textChars":45,"textLines":1,"bbox":[675,392,500,28]}
+{"kind":"shape","id":"sh/qtcj6tov","slide":7,"bbox":[41,470,1197,94]}
+{"kind":"textbox","id":"sh/1gvy90je","slide":7,"text":"Control trail","textPreview":"Control trail","textChars":13,"textLines":1,"bbox":[65,488,220,30]}
+{"kind":"textbox","id":"sh/8z25kb6x","slide":7,"text":"AuditEvent and DeletedUserArchive preserve sensitive history.","textPreview":"AuditEvent and DeletedUserArchive preserve sensitive history.","textChars":61,"textLines":1,"bbox":[65,522,1040,28]}
+{"kind":"textbox","id":"sh/fa9w3m94","slide":7,"text":"Current tenancy is pooled: shared database and schema, tenant IDs on tenant-owned records, and application-level tenant validation. RLS is called out as enterprise hardening before high-risk tenants.","textPreview":"Current tenancy is pooled: shared database and schema, tenant IDs on tenant-owned records, and application-level tenant validation. RLS i...","textChars":199,"textLines":1,"bbox":[41,602,1030,48]}
+{"kind":"textbox","id":"sh/qpg3ex0n","slide":7,"text":"07","textPreview":"07","textChars":2,"textLines":1,"bbox":[1184,659,54,25]}
+{"kind":"notes","id":"nt/l251lu","slide":7,"text":""}
+{"kind":"slide","id":"sl/s19dmp","slide":8,"title":"API surface","textShapes":12}
+{"kind":"textbox","id":"sh/udg7adsj","slide":8,"text":"API surface","textPreview":"API surface","textChars":11,"textLines":1,"bbox":[41,36,220,24]}
+{"kind":"textbox","id":"sh/54zidony","slide":8,"text":"The public API is small, versioned, and protected by schemas and permissions","textPreview":"The public API is small, versioned, and protected by schemas and permissions","textChars":76,"textLines":1,"bbox":[41,74,960,86]}
+{"kind":"shape","id":"sh/cj6tovah","slide":8,"bbox":[41,188,1197,1]}
+{"kind":"textbox","id":"sh/nap4r65w","slide":8,"text":"Auth","textPreview":"Auth","textChars":4,"textLines":1,"bbox":[41,204,220,38]}
+{"kind":"textbox","id":"sh/upwb2hwf","slide":8,"text":"/tenants, /login, /otp, /refresh, password reset, /me, logout, MFA, sessions","textPreview":"/tenants, /login, /otp, /refresh, password reset, /me, logout, MFA, sessions","textChars":76,"textLines":1,"bbox":[300,204,900,52]}
+{"kind":"shape","id":"sh/5gbq1ory","slide":8,"bbox":[41,282,1197,1]}
+{"kind":"textbox","id":"sh/cvixczed","slide":8,"text":"Admin","textPreview":"Admin","textChars":5,"textLines":1,"bbox":[41,298,220,38]}
+{"kind":"textbox","id":"sh/jm1cfa9w","slide":8,"text":"tenants, organizations, users, roles, permissions","textPreview":"tenants, organizations, users, roles, permissions","textChars":49,"textLines":1,"bbox":[300,298,900,52]}
+{"kind":"shape","id":"sh/u18jqh0f","slide":8,"bbox":[41,376,1197,1]}
+{"kind":"textbox","id":"sh/w3m94fu1","slide":8,"text":"Performance","textPreview":"Performance","textChars":11,"textLines":1,"bbox":[41,392,220,38]}
+{"kind":"textbox","id":"sh/loj2t83i","slide":8,"text":"dashboard, cycles, goals, KRAs, KPIs, reviews, evidence","textPreview":"dashboard, cycles, goals, KRAs, KPIs, reviews, evidence","textChars":55,"textLines":1,"bbox":[300,392,900,52]}
+{"kind":"shape","id":"sh/ex0nuxc3","slide":8,"bbox":[41,470,1197,1]}
+{"kind":"textbox","id":"sh/3itgfmlk","slide":8,"text":"Standard behavior","textPreview":"Standard behavior","textChars":17,"textLines":1,"bbox":[41,486,220,38]}
+{"kind":"textbox","id":"sh/wb2hwfyx","slide":8,"text":"Zod validation, 401 auth failures, 403 authorization failures, 404 unknown routes, sanitized errors","textPreview":"Zod validation, 401 auth failures, 403 authorization failures, 404 unknown routes, sanitized errors","textChars":99,"textLines":1,"bbox":[300,486,900,52]}
+{"kind":"shape","id":"sh/lwval87e","slide":8,"bbox":[41,604,1197,38]}
+{"kind":"textbox","id":"sh/e9cvixcz","slide":8,"text":"Rule for new endpoints: define route, method, authentication, permission, tenant behavior, schemas, audit behavior, error codes, and tests.","textPreview":"Rule for new endpoints: define route, method, authentication, permission, tenant behavior, schemas, audit behavior, error codes, and tests.","textChars":139,"textLines":1,"bbox":[65,612,1080,24]}
+{"kind":"textbox","id":"sh/3q5o7qpg","slide":8,"text":"08","textPreview":"08","textChars":2,"textLines":1,"bbox":[1184,659,54,25]}
+{"kind":"notes","id":"nt/s19dmp","slide":8,"text":""}
+{"kind":"slide","id":"sl/2eygek","slide":9,"title":"Security model","textShapes":12}
+{"kind":"textbox","id":"sh/18jqh0fe","slide":9,"text":"Security model","textPreview":"Security model","textChars":14,"textLines":1,"bbox":[41,36,220,24]}
+{"kind":"textbox","id":"sh/qh0fepkz","slide":9,"text":"Access is permission based; role names are only labels","textPreview":"Access is permission based; role names are only labels","textChars":54,"textLines":1,"bbox":[41,96,760,150]}
+{"kind":"textbox","id":"sh/j2t83itg","slide":9,"text":"Each protected request combines authenticated user context, active session, tenant membership, role assignment, permission code, assignment scope, and optional MFA requirements. Sensitive administration actions write audit events.","textPreview":"Each protected request combines authenticated user context, active session, tenant membership, role assignment, permission code, assignme...","textChars":230,"textLines":1,"bbox":[41,270,650,250]}
+{"kind":"shape","id":"sh/8bat47y1","slide":9,"bbox":[828,112,374,88]}
+{"kind":"textbox","id":"sh/1w7mp0bi","slide":9,"text":"Implemented","textPreview":"Implemented","textChars":11,"textLines":1,"bbox":[858,130,320,28]}
+{"kind":"textbox","id":"sh/q5o7qpg3","slide":9,"text":"Helmet, CORS allowlist, Argon2, JWTs, refresh sessions, auth rate limiting, audit events.","textPreview":"Helmet, CORS allowlist, Argon2, JWTs, refresh sessions, auth rate limiting, audit events.","textChars":89,"textLines":1,"bbox":[858,164,320,38]}
+{"kind":"shape","id":"sh/jqh0fepk","slide":9,"bbox":[828,228,374,88]}
+{"kind":"textbox","id":"sh/c3ylc7u5","slide":9,"text":"Scope types","textPreview":"Scope types","textChars":11,"textLines":1,"bbox":[858,246,320,28]}
+{"kind":"textbox","id":"sh/1kre1w7m","slide":9,"text":"PLATFORM, TENANT, ORGANIZATION, TEAM, SELF.","textPreview":"PLATFORM, TENANT, ORGANIZATION, TEAM, SELF.","textChars":43,"textLines":1,"bbox":[858,280,320,38]}
+{"kind":"shape","id":"sh/5o7qpg3e","slide":9,"bbox":[828,344,374,88]}
+{"kind":"textbox","id":"sh/g3ex0nux","slide":9,"text":"Before public production","textPreview":"Before public production","textChars":24,"textLines":1,"bbox":[858,362,320,28]}
+{"kind":"textbox","id":"sh/nih4byhg","slide":9,"text":"Tighten secrets, cookies, CORS, backups, dependency scans, audit map, and RLS decision.","textPreview":"Tighten secrets, cookies, CORS, backups, dependency scans, audit map, and RLS decision.","textChars":87,"textLines":1,"bbox":[858,396,320,38]}
+{"kind":"shape","id":"sh/yxobm58z","slide":9,"bbox":[828,460,374,88]}
+{"kind":"textbox","id":"sh/9cvixcze","slide":9,"text":"Engineering rule","textPreview":"Engineering rule","textChars":16,"textLines":1,"bbox":[858,478,320,28]}
+{"kind":"textbox","id":"sh/gr2p8nqx","slide":9,"text":"No tenant-owned query without filtering or RLS.","textPreview":"No tenant-owned query without filtering or RLS.","textChars":47,"textLines":1,"bbox":[858,512,320,38]}
+{"kind":"textbox","id":"sh/r65wjudg","slide":9,"text":"09","textPreview":"09","textChars":2,"textLines":1,"bbox":[1184,659,54,25]}
+{"kind":"notes","id":"nt/2eygek","slide":9,"text":""}
+{"kind":"slide","id":"sl/63txhk","slide":10,"title":"Developer workflow","textShapes":14}
+{"kind":"textbox","id":"sh/szqtcj6t","slide":10,"text":"Developer workflow","textPreview":"Developer workflow","textChars":18,"textLines":1,"bbox":[41,36,220,24]}
+{"kind":"textbox","id":"sh/3ex0nuxc","slide":10,"text":"Setup and verification are documented as runbooks, not tribal knowledge","textPreview":"Setup and verification are documented as runbooks, not tribal knowledge","textChars":71,"textLines":1,"bbox":[41,74,930,82]}
+{"kind":"textbox","id":"sh/at47y1kr","slide":10,"text":"Install","textPreview":"Install","textChars":7,"textLines":1,"bbox":[41,206,210,30]}
+{"kind":"shape","id":"sh/l87ed8ba","slide":10,"bbox":[300,198,675,48]}
+{"kind":"textbox","id":"sh/sneloj2t","slide":10,"text":"pnpm install","textPreview":"pnpm install","textChars":12,"textLines":1,"bbox":[322,208,620,28]}
+{"kind":"textbox","id":"sh/32lszqtc","slide":10,"text":"Backend dev","textPreview":"Backend dev","textChars":11,"textLines":1,"bbox":[41,276,210,30]}
+{"kind":"shape","id":"sh/ahoza1gv","slide":10,"bbox":[300,268,675,48]}
+{"kind":"textbox","id":"sh/lwval87e","slide":10,"text":"pnpm dev","textPreview":"pnpm dev","textChars":8,"textLines":1,"bbox":[322,278,620,28]}
+{"kind":"textbox","id":"sh/wb2hwfyx","slide":10,"text":"Frontend dev","textPreview":"Frontend dev","textChars":12,"textLines":1,"bbox":[41,346,210,30]}
+{"kind":"shape","id":"sh/2lszqtcj","slide":10,"bbox":[300,338,675,48]}
+{"kind":"textbox","id":"sh/v6psfil0","slide":10,"text":"pnpm frontend:dev","textPreview":"pnpm frontend:dev","textChars":17,"textLines":1,"bbox":[322,348,620,28]}
+{"kind":"textbox","id":"sh/knih4byh","slide":10,"text":"Database","textPreview":"Database","textChars":8,"textLines":1,"bbox":[41,416,210,30]}
+{"kind":"shape","id":"sh/d8bat47y","slide":10,"bbox":[300,408,675,48]}
+{"kind":"textbox","id":"sh/29gr2p8n","slide":10,"text":"pnpm prisma:generate | pnpm prisma:migrate | pnpm prisma:seed","textPreview":"pnpm prisma:generate | pnpm prisma:migrate | pnpm prisma:seed","textChars":61,"textLines":1,"bbox":[322,418,620,28]}
+{"kind":"textbox","id":"sh/vu9knih4","slide":10,"text":"Release gate","textPreview":"Release gate","textChars":12,"textLines":1,"bbox":[41,486,210,30]}
+{"kind":"shape","id":"sh/kf6dcbul","slide":10,"bbox":[300,478,675,48]}
+{"kind":"textbox","id":"sh/d0z61032","slide":10,"text":"pnpm verify","textPreview":"pnpm verify","textChars":11,"textLines":1,"bbox":[322,488,620,28]}
+{"kind":"textbox","id":"sh/2x4nap4r","slide":10,"text":"Runbook order: database, backend API, frontend web, auth, admin, performance, RBAC/audit, development workflow.","textPreview":"Runbook order: database, backend API, frontend web, auth, admin, performance, RBAC/audit, development workflow.","textChars":111,"textLines":1,"bbox":[41,604,1030,42]}
+{"kind":"textbox","id":"sh/vixczed8","slide":10,"text":"10","textPreview":"10","textChars":2,"textLines":1,"bbox":[1184,659,54,25]}
+{"kind":"notes","id":"nt/63txhk","slide":10,"text":""}
+{"kind":"slide","id":"sl/xtdnws","slide":11,"title":"Release readiness","textShapes":12}
+{"kind":"textbox","id":"sh/at47y1kr","slide":11,"text":"Release readiness","textPreview":"Release readiness","textChars":17,"textLines":1,"bbox":[41,36,220,24]}
+{"kind":"textbox","id":"sh/lkjm1cfa","slide":11,"text":"Phase 1 should stay narrow until the current product is proven","textPreview":"Phase 1 should stay narrow until the current product is proven","textChars":62,"textLines":1,"bbox":[41,96,760,150]}
+{"kind":"textbox","id":"sh/szqtcj6t","slide":11,"text":"The architecture document is explicit: do not describe roadmap features as current guarantees. Stabilize auth, admin, performance, audit coverage, deployment checks, backups, dependency scans, and the RLS decision before broadening the platform.","textPreview":"The architecture document is explicit: do not describe roadmap features as current guarantees. Stabilize auth, admin, performance, audit ...","textChars":245,"textLines":1,"bbox":[41,270,650,250]}
+{"kind":"shape","id":"sh/32lszqtc","slide":11,"bbox":[828,112,374,88]}
+{"kind":"textbox","id":"sh/ahoza1gv","slide":11,"text":"Phase 1A","textPreview":"Phase 1A","textChars":8,"textLines":1,"bbox":[858,130,320,28]}
+{"kind":"textbox","id":"sh/l87ed8ba","slide":11,"text":"Keep current modules green; add audit map and production checklist.","textPreview":"Keep current modules green; add audit map and production checklist.","textChars":67,"textLines":1,"bbox":[858,164,320,38]}
+{"kind":"shape","id":"sh/sneloj2t","slide":11,"bbox":[828,228,374,88]}
+{"kind":"textbox","id":"sh/3q5o7qpg","slide":11,"text":"Phase 1B","textPreview":"Phase 1B","textChars":8,"textLines":1,"bbox":[858,246,320,28]}
+{"kind":"textbox","id":"sh/e9cvixcz","slide":11,"text":"Expand HR core with profiles, leave, documents, notifications, idempotency.","textPreview":"Expand HR core with profiles, leave, documents, notifications, idempotency.","textChars":75,"textLines":1,"bbox":[858,280,320,38]}
+{"kind":"shape","id":"sh/87ed8bat","slide":11,"bbox":[828,344,374,88]}
+{"kind":"textbox","id":"sh/xs72x4na","slide":11,"text":"Phase 2","textPreview":"Phase 2","textChars":7,"textLines":1,"bbox":[858,362,320,28]}
+{"kind":"textbox","id":"sh/q1orytsv","slide":11,"text":"Enterprise readiness: RLS, SSO, SCIM, custom domains, tenant lifecycle.","textPreview":"Enterprise readiness: RLS, SSO, SCIM, custom domains, tenant lifecycle.","textChars":71,"textLines":1,"bbox":[858,396,320,38]}
+{"kind":"shape","id":"sh/fmlkjm1c","slide":11,"bbox":[828,460,374,88]}
+{"kind":"textbox","id":"sh/8z25kb6x","slide":11,"text":"Decision gate","textPreview":"Decision gate","textChars":13,"textLines":1,"bbox":[858,478,320,28]}
+{"kind":"textbox","id":"sh/1gvy90je","slide":11,"text":"`pnpm verify` plus documented manual checks for risky migrations.","textPreview":"`pnpm verify` plus documented manual checks for risky migrations.","textChars":65,"textLines":1,"bbox":[858,512,320,38]}
+{"kind":"textbox","id":"sh/qtcj6tov","slide":11,"text":"11","textPreview":"11","textChars":2,"textLines":1,"bbox":[1184,659,54,25]}
+{"kind":"notes","id":"nt/xtdnws","slide":11,"text":""}

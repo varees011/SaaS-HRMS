@@ -1,0 +1,1396 @@
+diff --git a/frontend/src/features/dashboard/dashboard-page.tsx b/frontend/src/features/dashboard/dashboard-page.tsx
+index 8a3dfda..52e60bb 100644
+--- a/frontend/src/features/dashboard/dashboard-page.tsx
++++ b/frontend/src/features/dashboard/dashboard-page.tsx
+@@ -1,10 +1,10 @@
++import { useQuery } from "@tanstack/react-query";
+ import {
+-  BriefcaseBusiness,
+-  CalendarDays,
++  Building2,
+   CheckCircle2,
+-  Coffee,
+   Fingerprint,
+   KeyRound,
++  LoaderCircle,
+   ShieldCheck,
+   Target,
+   UserRound,
+@@ -18,50 +18,10 @@ import {
+   CardHeader,
+   CardTitle
+ } from "@/shared/ui/card";
++import { adminApi } from "@/features/admin/admin.api";
+ import { useAuthStore } from "@/features/auth/auth.store";
+-
+-const metricCards = [
+-  {
+-    label: "Employees",
+-    value: "248",
+-    delta: "+12 this month",
+-    className: "metric-card-blue",
+-    icon: UsersRound
+-  },
+-  {
+-    label: "New hires",
+-    value: "16",
+-    delta: "8 onboarding",
+-    className: "metric-card-lime",
+-    icon: BriefcaseBusiness
+-  },
+-  {
+-    label: "On leave",
+-    value: "12",
+-    delta: "3 pending approval",
+-    className: "metric-card-rose",
+-    icon: CalendarDays
+-  },
+-  {
+-    label: "Reviews",
+-    value: "08",
+-    delta: "Cycle active",
+-    className: "metric-card-violet",
+-    icon: Target
+-  }
+-];
+-
+-const candidates = [
+-  ["Aarav Mehta", "Frontend Engineer", "Interview"],
+-  ["Neha Rao", "HR Generalist", "Offer"],
+-  ["Kabir Khan", "QA Engineer", "Screening"]
+-] satisfies Array<[string, string, string]>;
+-
+-const meetings = [
+-  ["10:00", "Performance calibration"],
+-  ["12:30", "Recruiter sync"],
+-  ["16:00", "Leave policy review"]
+-] satisfies Array<[string, string]>;
++import { hasAnyPermission } from "@/features/auth/permissions";
++import { performanceApi } from "@/features/performance/performance.api";
+ 
+ const roleCards = [
+   {
+@@ -87,10 +47,108 @@ const roleCards = [
+ export function DashboardPage() {
+   const user = useAuthStore((state) => state.user)!;
+   const activeAssignment = user.roleAssignments[0];
++  const tenantId = user.tenantId ?? user.memberships?.[0]?.tenantId ?? "";
+   const department =
+     activeAssignment?.organization?.name ??
+     activeAssignment?.role.department?.name ??
+     "No department assigned";
++
++  const canReadUsers = hasAnyPermission(user, [
++    "platform.users.read",
++    "tenant.users.read",
++    "user.read"
++  ]);
++  const canReadOrganizations = hasAnyPermission(user, [
++    "platform.organizations.read",
++    "tenant.organizations.read"
++  ]);
++  const canReadRoles = hasAnyPermission(user, [
++    "platform.roles.read",
++    "tenant.roles.read",
++    "role.read"
++  ]);
++  const canReadPerformance = hasAnyPermission(user, [
++    "tenant.performance.read",
++    "tenant.performance.manage",
++    "team.performance.review"
++  ]);
++
++  const users = useQuery({
++    queryKey: ["dashboard", "users", tenantId],
++    queryFn: () => adminApi.listUsers({ tenantId, status: "ACTIVE", limit: 1000 }),
++    enabled: Boolean(tenantId) && canReadUsers
++  });
++  const organizations = useQuery({
++    queryKey: ["dashboard", "organizations", tenantId],
++    queryFn: () => adminApi.listOrganizations({ tenantId, limit: 1000 }),
++    enabled: Boolean(tenantId) && canReadOrganizations
++  });
++  const roles = useQuery({
++    queryKey: ["dashboard", "roles", tenantId],
++    queryFn: () => adminApi.listRoles(tenantId),
++    enabled: Boolean(tenantId) && canReadRoles
++  });
++  const performanceDashboard = useQuery({
++    queryKey: ["dashboard", "performance", tenantId],
++    queryFn: () => performanceApi.dashboard({ tenantId }),
++    enabled: Boolean(tenantId) && canReadPerformance
++  });
++  const reviews = useQuery({
++    queryKey: ["dashboard", "performance-reviews", tenantId],
++    queryFn: () => performanceApi.listReviews({ tenantId, limit: 3 }),
++    enabled: Boolean(tenantId) && canReadPerformance
++  });
++
++  const visibleUsers = users.data?.data ?? [];
++  const visibleOrganizations = organizations.data?.data ?? [];
++  const companyOrganizations = visibleOrganizations.filter(
++    (organization) =>
++      !organization.parent ||
++      ["company", "legal_entity"].includes(organization.organizationType)
++  );
++  const visibleRoles = roles.data?.data ?? [];
++  const visibleReviews = reviews.data?.data ?? [];
++
++  const metrics = [
++    {
++      label: "Tenant users",
++      value: visibleUsers.length,
++      detail: "Active tenant users",
++      available: canReadUsers,
++      loading: users.isLoading,
++      icon: UsersRound,
++      className: "metric-card-blue"
++    },
++    {
++      label: "Organizations",
++      value: companyOrganizations.length,
++      detail: "Company and legal entity records",
++      available: canReadOrganizations,
++      loading: organizations.isLoading,
++      icon: Building2,
++      className: "metric-card-lime"
++    },
++    {
++      label: "Roles",
++      value: visibleRoles.length,
++      detail: "From RBAC role catalog",
++      available: canReadRoles,
++      loading: roles.isLoading,
++      icon: KeyRound,
++      className: "metric-card-rose"
++    },
++    {
++      label: "Reviews",
++      value: performanceDashboard.data?.data.reviews ?? 0,
++      detail: "From performance reviews",
++      available: canReadPerformance,
++      loading: performanceDashboard.isLoading,
++      icon: Target,
++      className: "metric-card-violet"
++    }
++  ];
++  const visibleMetrics = metrics.filter((metric) => metric.available);
++
+   const valueFor = (key: string) => {
+     if (key === "status") return user.status;
+     if (key === "mfa") return user.mfaEnabled ? "Enabled" : "Not enabled";
+@@ -104,11 +162,11 @@ export function DashboardPage() {
+           <div>
+             <span className="callout-label">HRMS dashboard</span>
+             <h1 className="mt-6 max-w-3xl text-4xl font-extrabold leading-tight text-primary sm:text-5xl">
+-              Welcome, {user.firstName}. Track your people operations at a glance.
++              Welcome, {user.firstName}. Track your tenant data at a glance.
+             </h1>
+             <p className="mt-5 max-w-2xl text-muted-foreground">
+-              Candidate movement, manager actions, leave status, and review
+-              progress share one workspace with tenant-aware access.
++              This dashboard only shows values returned by the API for your active
++              tenant and permissions.
+             </p>
+           </div>
+           <div className="rounded-lg border border-primary/10 bg-primary p-5 text-white shadow-xl">
+@@ -138,107 +196,145 @@ export function DashboardPage() {
+         </div>
+       </section>
+ 
+-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+-        {metricCards.map(({ label, value, delta, className, icon: Icon }) => (
+-          <Card key={label} className={className}>
+-            <CardContent className="p-5">
+-              <div className="mb-5 flex items-center justify-between">
+-                <span className="grid h-10 w-10 place-items-center rounded-md bg-white/85 shadow-sm">
+-                  <Icon className="h-5 w-5" />
+-                </span>
+-                <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-bold">
+-                  {delta}
+-                </span>
++      {visibleMetrics.length > 0 ? (
++        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
++          {visibleMetrics.map(({ label, value, detail, loading, className, icon: Icon }) => (
++            <Card key={label} className={className}>
++              <CardContent className="p-5">
++                <div className="mb-5 flex items-center justify-between">
++                  <span className="grid h-10 w-10 place-items-center rounded-md bg-white/85 shadow-sm">
++                    <Icon className="h-5 w-5" />
++                  </span>
++                  <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-bold">
++                    Live data
++                  </span>
++                </div>
++                <p className="text-sm font-semibold opacity-70">{label}</p>
++                <p className="mt-1 text-3xl font-extrabold">
++                  {loading ? <LoaderCircle className="h-7 w-7 animate-spin" /> : value}
++                </p>
++                <p className="mt-2 text-xs font-medium opacity-70">{detail}</p>
++              </CardContent>
++            </Card>
++          ))}
++        </div>
++      ) : null}
++
++      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
++        {canReadUsers ? (
++          <Card>
++            <CardHeader className="flex-row items-start justify-between gap-4">
++              <div>
++                <span className="callout-label">People</span>
++                <CardTitle className="mt-4">Tenant users</CardTitle>
++                <CardDescription>
++                  Real user records returned by the admin API.
++                </CardDescription>
+               </div>
+-              <p className="text-sm font-semibold opacity-70">{label}</p>
+-              <p className="mt-1 text-3xl font-extrabold">{value}</p>
++              <Badge variant="secondary">{visibleUsers.length} visible</Badge>
++            </CardHeader>
++            <CardContent>
++              {users.isLoading ? (
++                <LoadingState />
++              ) : visibleUsers.length ? (
++                <div className="grid gap-3 md:grid-cols-3">
++                  {visibleUsers.slice(0, 3).map((tenantUser) => (
++                    <div
++                      key={tenantUser.id}
++                      className="rounded-lg border border-primary/10 bg-slate-50 p-4"
++                    >
++                      <div className="mb-4 grid h-11 w-11 place-items-center rounded-full bg-white text-sm font-extrabold text-destructive shadow-sm">
++                        {tenantUser.firstName[0]}
++                        {tenantUser.lastName[0]}
++                      </div>
++                      <p className="font-bold text-primary">
++                        {tenantUser.firstName} {tenantUser.lastName}
++                      </p>
++                      <p className="text-sm text-muted-foreground">{tenantUser.email}</p>
++                      <Badge className="mt-4" variant="outline">
++                        {tenantUser.status}
++                      </Badge>
++                    </div>
++                  ))}
++                </div>
++              ) : (
++                <EmptyState message="No tenant users found." />
++              )}
+             </CardContent>
+           </Card>
+-        ))}
+-      </div>
++        ) : null}
+ 
+-      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+-        <Card>
+-          <CardHeader className="flex-row items-start justify-between gap-4">
+-            <div>
+-              <span className="callout-label">Candidates</span>
+-              <CardTitle className="mt-4">Shortlisted candidates</CardTitle>
++        {canReadPerformance ? (
++          <Card>
++            <CardHeader>
++              <span className="callout-label w-fit">Performance</span>
++              <CardTitle className="pt-4">Review focus</CardTitle>
+               <CardDescription>
+-                Track active hiring movement and next actions.
++                Real performance review records from the database.
+               </CardDescription>
+-            </div>
+-            <Badge variant="secondary">3 active</Badge>
+-          </CardHeader>
+-          <CardContent>
+-            <div className="grid gap-3 md:grid-cols-3">
+-              {candidates.map(([name, role, status]) => (
+-                <div
+-                  key={name}
+-                  className="rounded-lg border border-primary/10 bg-slate-50 p-4"
+-                >
+-                  <div className="mb-4 grid h-11 w-11 place-items-center rounded-full bg-white text-sm font-extrabold text-destructive shadow-sm">
+-                    {name
+-                      .split(" ")
+-                      .map((part) => part[0])
+-                      .join("")}
++            </CardHeader>
++            <CardContent className="space-y-3">
++              {reviews.isLoading ? (
++                <LoadingState />
++              ) : visibleReviews.length ? (
++                visibleReviews.map((review) => (
++                  <div
++                    key={review.id}
++                    className="rounded-md border border-primary/10 bg-slate-50 p-3"
++                  >
++                    <div className="flex items-center justify-between gap-3">
++                      <p className="text-sm font-semibold">
++                        {review.employee.firstName} {review.employee.lastName}
++                      </p>
++                      <Badge variant="outline">{review.status}</Badge>
++                    </div>
++                    <p className="mt-1 text-xs text-muted-foreground">
++                      {review.cycle.name}
++                    </p>
+                   </div>
+-                  <p className="font-bold text-primary">{name}</p>
+-                  <p className="text-sm text-muted-foreground">{role}</p>
+-                  <Badge className="mt-4" variant="outline">
+-                    {status}
+-                  </Badge>
+-                </div>
+-              ))}
+-            </div>
+-          </CardContent>
+-        </Card>
+-
+-        <Card>
+-          <CardHeader>
+-            <span className="callout-label w-fit">Managers</span>
+-            <CardTitle className="pt-4">Today's focus</CardTitle>
+-            <CardDescription>
+-              Meetings and manager actions that need attention.
+-            </CardDescription>
+-          </CardHeader>
+-          <CardContent className="space-y-3">
+-            {meetings.map(([time, title]) => (
+-              <div
+-                key={title}
+-                className="flex items-center gap-3 rounded-md border border-primary/10 bg-slate-50 p-3"
+-              >
+-                <span className="rounded-md bg-accent px-2.5 py-1 text-xs font-extrabold text-primary">
+-                  {time}
+-                </span>
+-                <p className="text-sm font-semibold">{title}</p>
+-              </div>
+-            ))}
+-          </CardContent>
+-        </Card>
++                ))
++              ) : (
++                <EmptyState message="No performance reviews found." />
++              )}
++            </CardContent>
++          </Card>
++        ) : null}
+       </div>
+ 
+       <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+-        <Card>
+-          <CardHeader>
+-            <span className="callout-label w-fit">Water cooler</span>
+-            <CardTitle className="pt-4">Team pulse</CardTitle>
+-            <CardDescription>
+-              Lightweight people signals for HR and managers.
+-            </CardDescription>
+-          </CardHeader>
+-          <CardContent className="space-y-3">
+-            {["4 birthdays this week", "2 policy acknowledgements due", "6 kudos shared"].map(
+-              (item) => (
+-                <div key={item} className="flex items-center gap-3 text-sm">
+-                  <span className="grid h-8 w-8 place-items-center rounded-full bg-lime-100 text-primary">
+-                    <Coffee className="h-4 w-4" />
+-                  </span>
+-                  {item}
+-                </div>
+-              )
+-            )}
+-          </CardContent>
+-        </Card>
++        {canReadOrganizations ? (
++          <Card>
++            <CardHeader>
++              <span className="callout-label w-fit">Organizations</span>
++              <CardTitle className="pt-4">Tenant structure</CardTitle>
++              <CardDescription>
++                Real organization records returned by the API.
++              </CardDescription>
++            </CardHeader>
++            <CardContent className="space-y-3">
++              {organizations.isLoading ? (
++                <LoadingState />
++              ) : companyOrganizations.length ? (
++                companyOrganizations.slice(0, 4).map((organization) => (
++                  <div
++                    key={organization.id}
++                    className="flex items-center justify-between gap-3 rounded-md border border-primary/10 bg-slate-50 p-3"
++                  >
++                    <div>
++                      <p className="text-sm font-semibold">{organization.name}</p>
++                      <p className="text-xs text-muted-foreground">
++                        {organization._count.children} child units
++                      </p>
++                    </div>
++                    <Badge variant="outline">{organization.code}</Badge>
++                  </div>
++                ))
++              ) : (
++                <EmptyState message="No company organization found." />
++              )}
++            </CardContent>
++          </Card>
++        ) : null}
+ 
+         <Card>
+           <CardHeader>
+@@ -283,3 +379,20 @@ export function DashboardPage() {
+     </div>
+   );
+ }
++
++function LoadingState() {
++  return (
++    <div className="flex items-center gap-2 text-sm text-muted-foreground">
++      <LoaderCircle className="h-4 w-4 animate-spin" />
++      Loading database records...
++    </div>
++  );
++}
++
++function EmptyState({ message }: { message: string }) {
++  return (
++    <div className="rounded-md border border-dashed border-primary/20 bg-slate-50 p-4 text-sm text-muted-foreground">
++      {message}
++    </div>
++  );
++}
+diff --git a/frontend/src/features/performance/performance-page.tsx b/frontend/src/features/performance/performance-page.tsx
+index 890d234..cb95d49 100644
+--- a/frontend/src/features/performance/performance-page.tsx
++++ b/frontend/src/features/performance/performance-page.tsx
+@@ -1508,33 +1508,21 @@ function ReviewAssignmentStep({
+     organizationId?: string | null;
+   }) => void;
+ }) {
+-  const [employeeSearch, setEmployeeSearch] = useState("");
+-  const [managerSearch, setManagerSearch] = useState("");
+   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<string[]>([]);
+   const [selectedEmployeeRecords, setSelectedEmployeeRecords] = useState<AdminUser[]>([]);
+-  const [managerUserId, setManagerUserId] = useState("");
++  const [employeeToAddId, setEmployeeToAddId] = useState("");
+   const [departmentId, setDepartmentId] = useState("");
+   const [teamId, setTeamId] = useState("");
++  const selectedScopeId = teamId || departmentId;
+ 
+   const employees = useQuery({
+-    queryKey: ["admin", "users", "employees", tenantId, employeeSearch],
++    queryKey: ["admin", "users", "employees", tenantId, selectedScopeId],
+     queryFn: () =>
+       adminApi.listUsers({
+         tenantId,
++        ...(selectedScopeId ? { departmentId: selectedScopeId } : {}),
+         role: "employee",
+         status: "ACTIVE",
+-        search: employeeSearch
+-      }),
+-    enabled: Boolean(tenantId)
+-  });
+-  const managers = useQuery({
+-    queryKey: ["admin", "users", "managers", tenantId, managerSearch],
+-    queryFn: () =>
+-      adminApi.listUsers({
+-        tenantId,
+-        role: "manager",
+-        status: "ACTIVE",
+-        search: managerSearch,
+         limit: 1000
+       }),
+     enabled: Boolean(tenantId)
+@@ -1555,13 +1543,38 @@ function ReviewAssignmentStep({
+         tenantId,
+         organizationType: "team",
+         departmentId
+-      }),
++    }),
+     enabled: Boolean(tenantId && departmentId)
+   });
+ 
++  useEffect(() => {
++    setEmployeeToAddId("");
++    setSelectedEmployeeIds([]);
++    setSelectedEmployeeRecords([]);
++  }, [selectedScopeId]);
++
+   const selectedEmployees = selectedEmployeeRecords.filter((employee) =>
+     selectedEmployeeIds.includes(employee.id)
+   );
++  const availableEmployees =
++    employees.data?.data.filter((employee) => !selectedEmployeeIds.includes(employee.id)) ??
++    [];
++  const selectedManagers = uniqueManagers(selectedEmployees);
++  const employeesWithoutManager = selectedEmployees.filter(
++    (employee) => !employee.reportingManagerUserId
++  );
++
++  function addEmployee(employeeId: string) {
++    const employee = employees.data?.data.find((item) => item.id === employeeId);
++    if (!employee) return;
++    setSelectedEmployeeIds((current) =>
++      current.includes(employee.id) ? current : [...current, employee.id]
++    );
++    setSelectedEmployeeRecords((records) =>
++      records.some((item) => item.id === employee.id) ? records : [...records, employee]
++    );
++    setEmployeeToAddId("");
++  }
+ 
+   function submit(event: FormEvent<HTMLFormElement>) {
+     event.preventDefault();
+@@ -1570,7 +1583,7 @@ function ReviewAssignmentStep({
+       tenantId,
+       cycleId,
+       employeeUserIds: selectedEmployeeIds,
+-      managerUserId: managerUserId || null,
++      managerUserId: null,
+       organizationId: teamId || departmentId || null
+     });
+   }
+@@ -1578,83 +1591,81 @@ function ReviewAssignmentStep({
+   return (
+     <form className="space-y-5" onSubmit={submit}>
+       {!cycleId ? <Alert>Select or create a cycle before assigning assessments.</Alert> : null}
+-      <div className="grid gap-3 md:grid-cols-2">
+-        <label className="space-y-1.5">
+-          <span className="text-sm font-medium">1. Department scope</span>
+-          <Select
+-            value={departmentId}
+-            onChange={(event) => {
+-              setDepartmentId(event.target.value);
+-              setTeamId("");
+-            }}
+-          >
+-            <option value="">No department scope</option>
+-            {departments.data?.data.map((department) => (
+-              <option key={department.id} value={department.id}>
+-                {department.name} ({department.code})
+-              </option>
+-            ))}
+-          </Select>
+-        </label>
+-        <label className="space-y-1.5">
+-          <span className="text-sm font-medium">Team scope</span>
+-          <Select
+-            value={teamId}
+-            disabled={!departmentId}
+-            onChange={(event) => setTeamId(event.target.value)}
+-          >
+-            <option value="">
+-              {departmentId ? "No team scope" : "Select a department first"}
+-            </option>
+-            {teams.data?.data.map((team) => (
+-              <option key={team.id} value={team.id}>
+-                {team.name} ({team.code})
++      <div className="rounded-md border">
++        <div className="grid gap-3 border-b p-3 md:grid-cols-2 xl:grid-cols-4">
++          <label className="space-y-1.5">
++            <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
++              Department
++            </span>
++            <Select
++              value={departmentId}
++              onChange={(event) => {
++                setDepartmentId(event.target.value);
++                setTeamId("");
++              }}
++            >
++              <option value="">No department scope</option>
++              {departments.data?.data.map((department) => (
++                <option key={department.id} value={department.id}>
++                  {department.name}
++                </option>
++              ))}
++            </Select>
++          </label>
++          <label className="space-y-1.5">
++            <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
++              Team
++            </span>
++            <Select
++              value={teamId}
++              disabled={!departmentId}
++              onChange={(event) => setTeamId(event.target.value)}
++            >
++              <option value="">
++                {departmentId ? "No team scope" : "Select department first"}
+               </option>
+-            ))}
+-          </Select>
+-        </label>
+-      </div>
+-
+-      <div className="grid gap-4 lg:grid-cols-2">
+-        <SearchableUsers
+-          title="2. Manager reviewer"
+-          search={managerSearch}
+-          onSearch={setManagerSearch}
+-          users={managers.data?.data ?? []}
+-          selectedIds={managerUserId ? [managerUserId] : []}
+-          onToggle={(id) => setManagerUserId(id === managerUserId ? "" : id)}
+-          isLoading={managers.isLoading}
+-          mode="single"
+-        />
+-        <SearchableUsers
+-          title="3. Employees to assess"
+-          search={employeeSearch}
+-          onSearch={setEmployeeSearch}
+-          users={employees.data?.data ?? []}
+-          selectedIds={selectedEmployeeIds}
+-          onToggle={(id) => {
+-            const employee = employees.data?.data.find((item) => item.id === id);
+-            setSelectedEmployeeIds((current) => {
+-              if (current.includes(id)) {
+-                setSelectedEmployeeRecords((records) =>
+-                  records.filter((item) => item.id !== id)
+-                );
+-                return current.filter((item) => item !== id);
+-              }
+-              if (employee) {
+-                setSelectedEmployeeRecords((records) =>
+-                  records.some((item) => item.id === id)
+-                    ? records
+-                    : [...records, employee]
+-                );
+-              }
+-              return [...current, id];
+-            });
+-          }}
+-          isLoading={employees.isLoading}
+-          mode="multiple"
+-        />
++              {teams.data?.data.map((team) => (
++                <option key={team.id} value={team.id}>
++                  {team.name}
++                </option>
++              ))}
++            </Select>
++          </label>
++          <ReportingManagerField
++            label="Manager reviewer"
++            managers={selectedManagers}
++            missingCount={employeesWithoutManager.length}
++          />
++          <AssignmentUserSelect
++            label="Employees to assess"
++            placeholder="Add employee"
++            users={availableEmployees}
++            value={employeeToAddId}
++            onChange={addEmployee}
++            isLoading={employees.isLoading}
++          />
++        </div>
++        <div className="flex flex-wrap gap-2 p-3 text-xs text-muted-foreground">
++          <Badge variant={selectedScopeId ? "success" : "secondary"}>
++            {selectedScopeId ? "Scoped" : "Tenant-wide"}
++          </Badge>
++          <span>
++            {selectedManagers.length} reporting manager
++            {selectedManagers.length === 1 ? "" : "s"}
++          </span>
++          <span>
++            {employees.isLoading
++              ? "Loading employees..."
++              : `${employees.data?.data.length ?? 0} assessable employees`}
++          </span>
++        </div>
+       </div>
++      {employeesWithoutManager.length ? (
++        <Alert>
++          Set a reporting manager for {employeesWithoutManager.length} selected employee
++          {employeesWithoutManager.length === 1 ? "" : "s"} before creating reviews.
++        </Alert>
++      ) : null}
+ 
+       <div className="rounded-md border">
+         <div className="border-b p-3 text-sm font-medium">
+@@ -1701,7 +1712,15 @@ function ReviewAssignmentStep({
+       </div>
+ 
+       <div className="flex justify-end">
+-        <Button disabled={!canReview || !cycleId || !selectedEmployeeIds.length || isSaving}>
++        <Button
++          disabled={
++            !canReview ||
++            !cycleId ||
++            !selectedEmployeeIds.length ||
++            Boolean(employeesWithoutManager.length) ||
++            isSaving
++          }
++        >
+           {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ClipboardCheck className="h-4 w-4" />}
+           Create Reviews
+         </Button>
+@@ -1710,67 +1729,77 @@ function ReviewAssignmentStep({
+   );
+ }
+ 
+-function SearchableUsers({
+-  title,
+-  search,
+-  onSearch,
++function ReportingManagerField({
++  label,
++  managers,
++  missingCount
++}: {
++  label: string;
++  managers: Array<NonNullable<AdminUser["reportingManager"]>>;
++  missingCount: number;
++}) {
++  const singleManager = managers[0];
++  const value =
++    missingCount > 0
++      ? `${missingCount} employee${missingCount === 1 ? "" : "s"} missing manager`
++      : managers.length === 0
++        ? "Select employee first"
++        : managers.length === 1 && singleManager
++          ? `${singleManager.firstName} ${singleManager.lastName} - ${singleManager.email}`
++          : `${managers.length} reporting managers from selected employees`;
++
++  return (
++    <label className="space-y-1.5">
++      <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
++        {label}
++      </span>
++      <div
++        className={cn(
++          "flex h-10 items-center truncate rounded-md border border-primary/10 bg-muted/40 px-3 py-2 text-sm shadow-inner shadow-primary/5",
++          missingCount ? "border-destructive/40 text-destructive" : "text-primary"
++        )}
++        title={value}
++      >
++        {value}
++      </div>
++    </label>
++  );
++}
++
++function AssignmentUserSelect({
++  label,
++  placeholder,
+   users,
+-  selectedIds,
+-  onToggle,
+-  isLoading,
+-  mode
++  value,
++  onChange,
++  isLoading
+ }: {
+-  title: string;
+-  search: string;
+-  onSearch: (value: string) => void;
++  label: string;
++  placeholder: string;
+   users: AdminUser[];
+-  selectedIds: string[];
+-  onToggle: (id: string) => void;
++  value: string;
++  onChange: (id: string) => void;
+   isLoading: boolean;
+-  mode: "single" | "multiple";
+ }) {
+   return (
+-    <div className="rounded-md border p-3">
+-      <div className="mb-3 flex items-center justify-between gap-3">
+-        <p className="text-sm font-semibold">{title}</p>
+-        {isLoading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+-      </div>
+-      <Input
+-        value={search}
+-        onChange={(event) => onSearch(event.target.value)}
+-        placeholder={`Search ${title.toLowerCase()} by name, email, or role`}
+-      />
+-      <div className="mt-3 max-h-72 space-y-2 overflow-auto">
+-        {users.map((item) => {
+-          const checked = selectedIds.includes(item.id);
+-          return (
+-            <label
+-              key={item.id}
+-              className={cn(
+-                "flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm",
+-                checked && "border-primary bg-primary/5"
+-              )}
+-            >
+-              <input
+-                type={mode === "multiple" ? "checkbox" : "radio"}
+-                className="mt-1"
+-                checked={checked}
+-                onChange={() => onToggle(item.id)}
+-              />
+-              <span>
+-                <span className="block font-medium">{userLabel(item)}</span>
+-                <span className="block text-muted-foreground">{userMeta(item)}</span>
+-              </span>
+-            </label>
+-          );
+-        })}
+-        {!users.length && !isLoading ? (
+-          <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+-            No matching users found.
+-          </p>
+-        ) : null}
+-      </div>
+-    </div>
++    <label className="space-y-1.5">
++      <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
++        {label}
++        {isLoading ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : null}
++      </span>
++      <Select
++        value={value}
++        disabled={isLoading || !users.length}
++        onChange={(event) => onChange(event.target.value)}
++      >
++        <option value="">{isLoading ? "Loading..." : placeholder}</option>
++        {users.map((item) => (
++          <option key={item.id} value={item.id}>
++            {userLabel(item)} - {userMeta(item)}
++          </option>
++        ))}
++      </Select>
++    </label>
+   );
+ }
+ 
+@@ -1991,6 +2020,16 @@ function userMeta(user: AdminUser) {
+   return `${role} - ${department}`;
+ }
+ 
++function uniqueManagers(users: AdminUser[]) {
++  const managers = new Map<string, NonNullable<AdminUser["reportingManager"]>>();
++  for (const user of users) {
++    if (user.reportingManager) {
++      managers.set(user.reportingManager.id, user.reportingManager);
++    }
++  }
++  return [...managers.values()];
++}
++
+ function userDepartment(user: AdminUser) {
+   return (
+     user.roleAssignments[0]?.organization?.name ??
+diff --git a/src/modules/performance/performance.service.ts b/src/modules/performance/performance.service.ts
+index 25621b2..730e697 100644
+--- a/src/modules/performance/performance.service.ts
++++ b/src/modules/performance/performance.service.ts
+@@ -635,7 +635,12 @@ export class PerformanceService {
+     await ensureTenantAndOrganization(prisma, tenantId, data.organizationId);
+     await assertOrganizationInScope(prisma, actor, tenantId, data.organizationId);
+     await ensureMember(prisma, tenantId, data.employeeUserId);
+-    await ensureMember(prisma, tenantId, data.managerUserId);
++    const managerUserId = await reviewManagerUserId(
++      prisma,
++      tenantId,
++      data.employeeUserId
++    );
++    await ensureMember(prisma, tenantId, managerUserId);
+     await assertReviewDoesNotExist(prisma, tenantId, data.cycleId, data.employeeUserId);
+     return prisma.$transaction(async (tx) => {
+       const review = await tx.performanceReview.create({
+@@ -643,7 +648,7 @@ export class PerformanceService {
+           tenantId,
+           cycleId: data.cycleId,
+           employeeUserId: data.employeeUserId,
+-          managerUserId: data.managerUserId ?? null,
++          managerUserId,
+           organizationId: data.organizationId ?? null,
+           createdBy: actor.userId,
+           updatedBy: actor.userId
+@@ -681,9 +686,18 @@ export class PerformanceService {
+     await ensureTenantAndOrganization(prisma, tenantId, data.organizationId);
+     await assertOrganizationInScope(prisma, actor, tenantId, data.organizationId);
+     await Promise.all([
+-      ...employeeUserIds.map((userId) => ensureMember(prisma, tenantId, userId)),
+-      ensureMember(prisma, tenantId, data.managerUserId)
++      ...employeeUserIds.map((userId) => ensureMember(prisma, tenantId, userId))
+     ]);
++    const managerByEmployeeId = await reviewManagerUserIds(
++      prisma,
++      tenantId,
++      employeeUserIds
++    );
++    await Promise.all(
++      [...new Set([...managerByEmployeeId.values()].filter(Boolean))].map(
++        (managerUserId) => ensureMember(prisma, tenantId, managerUserId)
++      )
++    );
+     const duplicate = await prisma.performanceReview.findFirst({
+       where: {
+         tenantId,
+@@ -708,7 +722,7 @@ export class PerformanceService {
+           tenantId,
+           cycleId: data.cycleId,
+           employeeUserId,
+-          managerUserId: data.managerUserId ?? null,
++          managerUserId: managerByEmployeeId.get(employeeUserId) ?? null,
+           organizationId: data.organizationId ?? null,
+           createdBy: actor.userId,
+           updatedBy: actor.userId
+@@ -1090,6 +1104,49 @@ async function ensureMember(
+   }
+ }
+ 
++async function reviewManagerUserId(
++  db: DatabaseClient,
++  tenantId: string,
++  employeeUserId: string
++): Promise<string | null> {
++  const managerByEmployeeId = await reviewManagerUserIds(db, tenantId, [
++    employeeUserId
++  ]);
++  return managerByEmployeeId.get(employeeUserId) ?? null;
++}
++
++async function reviewManagerUserIds(
++  db: DatabaseClient,
++  tenantId: string,
++  employeeUserIds: string[]
++): Promise<Map<string, string | null>> {
++  const employees = await db.user.findMany({
++    where: {
++      id: { in: employeeUserIds },
++      deletedAt: null,
++      memberships: { some: { tenantId, status: "ACTIVE", deletedAt: null } }
++    },
++    select: { id: true, preferences: true }
++  });
++  return new Map(
++    employees.map((employee) => [
++      employee.id,
++      reportingManagerUserId(employee.preferences)
++    ])
++  );
++}
++
++function reportingManagerUserId(value: Prisma.JsonValue): string | null {
++  const managerUserId = preferencesObject(value).reportingManagerUserId;
++  return typeof managerUserId === "string" && managerUserId ? managerUserId : null;
++}
++
++function preferencesObject(value: Prisma.JsonValue): Record<string, unknown> {
++  return value && typeof value === "object" && !Array.isArray(value)
++    ? { ...(value as Record<string, unknown>) }
++    : {};
++}
++
+ async function ensureKpi(db: DatabaseClient, tenantId: string, kpiId: string) {
+   const kpi = await db.performanceKpi.findFirst({
+     where: { id: kpiId, tenantId, deletedAt: null }
+diff --git a/tests/security/rbac.integration.test.ts b/tests/security/rbac.integration.test.ts
+index 772c27e..a2f6039 100644
+--- a/tests/security/rbac.integration.test.ts
++++ b/tests/security/rbac.integration.test.ts
+@@ -185,6 +185,42 @@ describe("RBAC and tenant isolation", () => {
+     expect(settingsResponse.status).toBe(200);
+   });
+ 
++  it("filters organization lists by organization type", async () => {
++    const token = await platformTestAccessToken();
++    const tenant = await prisma.tenant.findUniqueOrThrow({
++      where: { code: "venturesoft" },
++      select: { id: true }
++    });
++
++    const companiesResponse = await api(
++      `/api/v1/admin/organizations?tenantId=${tenant.id}&organizationType=company&limit=100`,
++      token
++    );
++    const departmentsResponse = await api(
++      `/api/v1/admin/organizations?tenantId=${tenant.id}&organizationType=department&limit=100`,
++      token
++    );
++
++    expect(companiesResponse.status).toBe(200);
++    expect(departmentsResponse.status).toBe(200);
++    const companies = (await companiesResponse.json()) as {
++      data: Array<{ name: string; organizationType: string }>;
++    };
++    const departments = (await departmentsResponse.json()) as {
++      data: Array<{ name: string; organizationType: string }>;
++    };
++    expect(companies.data).toEqual([
++      expect.objectContaining({
++        name: "VentureSoft.AI",
++        organizationType: "company"
++      })
++    ]);
++    expect(departments.data.length).toBeGreaterThan(0);
++    expect(departments.data.every((item) => item.organizationType === "department")).toBe(
++      true
++    );
++  });
++
+   it.each([
+     ["Organization Admin", "orgadmin@venturesoft.ai", "ORGANIZATION_ADMIN"],
+     ["HR Manager", "hrmanager", "HR_MANAGER"],
+@@ -229,6 +265,93 @@ describe("RBAC and tenant isolation", () => {
+     });
+   });
+ 
++  it("allows tenant admins to create only organization-bound custom roles", async () => {
++    const unique = Date.now();
++    const token = await testAccessToken("venturesoft", "orgadmin@venturesoft.ai");
++    const tenantId = await currentTenantId(token);
++    const department = await prisma.organization.findFirstOrThrow({
++      where: { tenantId, organizationType: "department", deletedAt: null },
++      select: { id: true }
++    });
++    const permission = await prisma.permission.findFirstOrThrow({
++      where: { code: "user.read", deletedAt: null },
++      select: { id: true }
++    });
++    const code = `ORG_BOUND_ROLE_${unique}`;
++    let roleId: string | undefined;
++
++    try {
++      const tenantWideResponse = await api("/api/v1/admin/roles", token, {
++        method: "POST",
++        body: {
++          tenantId,
++          code: `TENANT_ROLE_${unique}`,
++          name: `Tenant Role ${unique}`,
++          roleType: "TENANT",
++          permissionIds: [permission.id]
++        }
++      });
++      expect(tenantWideResponse.status).toBe(403);
++
++      const missingDepartmentResponse = await api("/api/v1/admin/roles", token, {
++        method: "POST",
++        body: {
++          tenantId,
++          code: `ORG_ROLE_NO_DEPT_${unique}`,
++          name: `Org Role No Dept ${unique}`,
++          roleType: "ORGANIZATION",
++          permissionIds: [permission.id]
++        }
++      });
++      expect(missingDepartmentResponse.status).toBe(422);
++
++      const response = await api("/api/v1/admin/roles", token, {
++        method: "POST",
++        body: {
++          tenantId,
++          departmentId: department.id,
++          code,
++          name: `Org Bound Role ${unique}`,
++          roleType: "ORGANIZATION",
++          permissionIds: [permission.id]
++        }
++      });
++      expect(response.status).toBe(201);
++      const payload = (await response.json()) as {
++        data: { id: string; departmentId: string; roleType: string };
++      };
++      roleId = payload.data.id;
++      expect(payload.data).toMatchObject({
++        departmentId: department.id,
++        roleType: "ORGANIZATION"
++      });
++    } finally {
++      if (roleId) await cleanupRole(roleId);
++      await prisma.role.deleteMany({
++        where: {
++          tenantId,
++          code: { in: [`TENANT_ROLE_${unique}`, `ORG_ROLE_NO_DEPT_${unique}`, code] }
++        }
++      });
++    }
++  });
++
++  it("blocks tenant admins from editing default system roles", async () => {
++    const token = await testAccessToken("venturesoft", "orgadmin@venturesoft.ai");
++    const tenantId = await currentTenantId(token);
++    const role = await prisma.role.findFirstOrThrow({
++      where: { tenantId, code: "HR_MANAGER", isSystemRole: true, deletedAt: null },
++      select: { id: true }
++    });
++
++    const response = await api(`/api/v1/admin/roles/${role.id}`, token, {
++      method: "PATCH",
++      body: { name: "Changed HR Manager" }
++    });
++
++    expect(response.status).toBe(409);
++  });
++
+   it("rotates refresh tokens, revokes them on logout, and rejects reuse", async () => {
+     const loginResult = await loginResponse("venturesoft", "employee@venturesoft.ai");
+     expect(loginResult.status).toBe(200);
+@@ -598,6 +721,40 @@ describe("RBAC and tenant isolation", () => {
+       employeeRole.id,
+       otherDepartment.id
+     );
++    const customEmployeeRole = await prisma.role.create({
++      data: {
++        tenantId: tenant.id,
++        departmentId: ownDepartment.id,
++        code: `NOC_ENGINEER_${unique}`,
++        name: "NOC Engineer",
++        roleType: "SELF",
++        isSystemRole: false
++      },
++      select: { id: true }
++    });
++    const customManagerRole = await prisma.role.create({
++      data: {
++        tenantId: tenant.id,
++        departmentId: ownDepartment.id,
++        code: `DELIVERY_MANAGER_${unique}`,
++        name: "Delivery Manager",
++        roleType: "SELF",
++        isSystemRole: false
++      },
++      select: { id: true }
++    });
++    const customEmployee = await createTenantUser(
++      `org-scope-noc-${unique}`,
++      tenant.id,
++      customEmployeeRole.id,
++      ownDepartment.id
++    );
++    const customManager = await createTenantUser(
++      `org-scope-delivery-manager-${unique}`,
++      tenant.id,
++      customManagerRole.id,
++      ownDepartment.id
++    );
+ 
+     try {
+       const response = await api(
+@@ -611,9 +768,131 @@ describe("RBAC and tenant isolation", () => {
+       expect(ids).toContain(ownUser.id);
+       expect(ids).toContain(scoped.userId);
+       expect(ids).not.toContain(otherUser.id);
++
++      const departmentResponse = await api(
++        `/api/v1/admin/users?tenantId=${tenant.id}&departmentId=${ownDepartment.id}&role=employee&status=ACTIVE&limit=100`,
++        scoped.token
++      );
++      expect(departmentResponse.status).toBe(200);
++      const departmentPayload = (await departmentResponse.json()) as {
++        data: Array<{ id: string }>;
++      };
++      const departmentIds = departmentPayload.data.map((item) => item.id);
++      expect(departmentIds).toContain(ownUser.id);
++      expect(departmentIds).toContain(customEmployee.id);
++      expect(departmentIds).not.toContain(otherUser.id);
++      expect(departmentIds).not.toContain(customManager.id);
++
++      const managerResponse = await api(
++        `/api/v1/admin/users?tenantId=${tenant.id}&departmentId=${ownDepartment.id}&role=manager&status=ACTIVE&limit=100`,
++        scoped.token
++      );
++      expect(managerResponse.status).toBe(200);
++      const managerPayload = (await managerResponse.json()) as {
++        data: Array<{ id: string }>;
++      };
++      const managerIds = managerPayload.data.map((item) => item.id);
++      expect(managerIds).toContain(customManager.id);
++      expect(managerIds).not.toContain(customEmployee.id);
+     } finally {
+-      await cleanupUsers([scoped.userId, ownUser.id, otherUser.id]);
++      await cleanupUsers([
++        scoped.userId,
++        ownUser.id,
++        otherUser.id,
++        customEmployee.id,
++        customManager.id
++      ]);
+       await cleanupRole(scoped.roleId);
++      await cleanupRole(customEmployeeRole.id);
++      await cleanupRole(customManagerRole.id);
++    }
++  });
++
++  it("derives performance review manager from the employee reporting manager", async () => {
++    const unique = Date.now();
++    const token = await testAccessToken("venturesoft", "orgadmin@venturesoft.ai");
++    const tenant = await prisma.tenant.findUniqueOrThrow({
++      where: { code: "venturesoft" },
++      select: { id: true }
++    });
++    const department = await prisma.organization.findFirstOrThrow({
++      where: {
++        tenantId: tenant.id,
++        organizationType: "department",
++        deletedAt: null
++      },
++      select: { id: true }
++    });
++    const employeeRole = await prisma.role.findFirstOrThrow({
++      where: { tenantId: tenant.id, code: "EMPLOYEE", deletedAt: null },
++      select: { id: true }
++    });
++    const reportingManager = await prisma.user.findFirstOrThrow({
++      where: {
++        email: "manager@venturesoft.ai",
++        deletedAt: null
++      },
++      select: { id: true }
++    });
++    const postedManager = await prisma.user.findFirstOrThrow({
++      where: {
++        email: "hrmanager@venturesoft.ai",
++        deletedAt: null
++      },
++      select: { id: true }
++    });
++    const employee = await createTenantUser(
++      `review-derived-manager-${unique}`,
++      tenant.id,
++      employeeRole.id,
++      department.id
++    );
++    await prisma.user.update({
++      where: { id: employee.id },
++      data: {
++        preferences: { reportingManagerUserId: reportingManager.id }
++      }
++    });
++    const cycle = await prisma.performanceReviewCycle.create({
++      data: {
++        tenantId: tenant.id,
++        organizationId: department.id,
++        name: `Derived Manager Cycle ${unique}`,
++        startDate: new Date("2026-01-01"),
++        endDate: new Date("2026-12-31"),
++        status: "ACTIVE"
++      },
++      select: { id: true }
++    });
++
++    try {
++      const response = await api("/api/v1/performance/reviews/bulk", token, {
++        method: "POST",
++        body: {
++          tenantId: tenant.id,
++          cycleId: cycle.id,
++          employeeUserIds: [employee.id],
++          managerUserId: postedManager.id,
++          organizationId: department.id
++        }
++      });
++
++      expect(response.status).toBe(201);
++      const review = await prisma.performanceReview.findFirstOrThrow({
++        where: {
++          tenantId: tenant.id,
++          cycleId: cycle.id,
++          employeeUserId: employee.id,
++          deletedAt: null
++        },
++        select: { managerUserId: true }
++      });
++      expect(review.managerUserId).toBe(reportingManager.id);
++      expect(review.managerUserId).not.toBe(postedManager.id);
++    } finally {
++      await prisma.performanceReview.deleteMany({ where: { cycleId: cycle.id } });
++      await prisma.performanceReviewCycle.deleteMany({ where: { id: cycle.id } });
++      await cleanupUsers([employee.id]);
+     }
+   });
+ 
+@@ -1031,6 +1310,16 @@ describe("RBAC and tenant isolation", () => {
+         })
+       ).resolves.toMatchObject({ status: "DISABLED" });
+ 
++      const activeUsersResponse = await api(
++        `/api/v1/admin/users?tenantId=${tenant.id}&status=ACTIVE&limit=1000`,
++        orgAdminToken.token
++      );
++      expect(activeUsersResponse.status).toBe(200);
++      const activeUsers = (await activeUsersResponse.json()) as {
++        data: Array<{ id: string }>;
++      };
++      expect(activeUsers.data.map((item) => item.id)).not.toContain(userId);
++
+       const activateResponse = await api(
+         `/api/v1/admin/users/${userId}`,
+         orgAdminToken.token,
+@@ -1214,6 +1503,87 @@ async function login(
+   return payload.data.accessToken;
+ }
+ 
++async function testAccessToken(
++  tenantCode: string | undefined,
++  login: string
++): Promise<string> {
++  const tenant = tenantCode
++    ? await prisma.tenant.findUniqueOrThrow({
++        where: { code: tenantCode },
++        select: { id: true }
++      })
++    : null;
++  const user = await prisma.user.findFirstOrThrow({
++    where: {
++      OR: [
++        { email: login },
++        { username: login },
++        ...(isUuid(login) ? [{ id: login }] : [])
++      ],
++      status: "ACTIVE",
++      deletedAt: null
++    },
++    select: { id: true }
++  });
++  const session = await prisma.authSession.create({
++    data: {
++      tenantId: tenant?.id ?? null,
++      userId: user.id,
++      refreshTokenHash: "f".repeat(64),
++      refreshTokenFamily: randomUUID(),
++      expiresAt: new Date(Date.now() + 86_400_000)
++    },
++    select: { id: true }
++  });
++  return tokenService.signAccessToken({
++    sub: user.id,
++    tenant_id: tenant?.id ?? null,
++    session_id: session.id,
++    role_ids: [],
++    roles: [],
++    role_names: [],
++    permissions: [],
++    is_platform_admin: false,
++    amr: ["pwd"]
++  });
++}
++
++async function platformTestAccessToken(): Promise<string> {
++  const user = await prisma.user.findUniqueOrThrow({
++    where: { email: "superadmin@venturesoft.ai" },
++    select: { id: true }
++  });
++  const role = await prisma.role.findFirstOrThrow({
++    where: { tenantId: null, code: PLATFORM_ROLE.code, deletedAt: null },
++    select: { id: true, name: true }
++  });
++  const session = await prisma.authSession.create({
++    data: {
++      tenantId: null,
++      userId: user.id,
++      refreshTokenHash: "p".repeat(64),
++      refreshTokenFamily: randomUUID(),
++      expiresAt: new Date(Date.now() + 86_400_000)
++    },
++    select: { id: true }
++  });
++  return tokenService.signAccessToken({
++    sub: user.id,
++    tenant_id: null,
++    session_id: session.id,
++    role_ids: [role.id],
++    roles: [PLATFORM_ROLE.code],
++    role_names: [role.name],
++    permissions: PERMISSIONS.map((permission) => permission.code),
++    is_platform_admin: true,
++    amr: ["pwd"]
++  });
++}
++
++function isUuid(value: string): boolean {
++  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
++}
++
+ function loginResponse(
+   tenant: string | undefined,
+   login: string

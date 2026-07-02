@@ -1,10 +1,10 @@
+import { useQuery } from "@tanstack/react-query";
 import {
-  BriefcaseBusiness,
-  CalendarDays,
+  Building2,
   CheckCircle2,
-  Coffee,
   Fingerprint,
   KeyRound,
+  LoaderCircle,
   ShieldCheck,
   Target,
   UserRound,
@@ -18,50 +18,11 @@ import {
   CardHeader,
   CardTitle
 } from "@/shared/ui/card";
+import { adminApi } from "@/features/admin/admin.api";
 import { useAuthStore } from "@/features/auth/auth.store";
-
-const metricCards = [
-  {
-    label: "Employees",
-    value: "248",
-    delta: "+12 this month",
-    className: "metric-card-blue",
-    icon: UsersRound
-  },
-  {
-    label: "New hires",
-    value: "16",
-    delta: "8 onboarding",
-    className: "metric-card-lime",
-    icon: BriefcaseBusiness
-  },
-  {
-    label: "On leave",
-    value: "12",
-    delta: "3 pending approval",
-    className: "metric-card-rose",
-    icon: CalendarDays
-  },
-  {
-    label: "Reviews",
-    value: "08",
-    delta: "Cycle active",
-    className: "metric-card-violet",
-    icon: Target
-  }
-];
-
-const candidates = [
-  ["Aarav Mehta", "Frontend Engineer", "Interview"],
-  ["Neha Rao", "HR Generalist", "Offer"],
-  ["Kabir Khan", "QA Engineer", "Screening"]
-] satisfies Array<[string, string, string]>;
-
-const meetings = [
-  ["10:00", "Performance calibration"],
-  ["12:30", "Recruiter sync"],
-  ["16:00", "Leave policy review"]
-] satisfies Array<[string, string]>;
+import type { CurrentUser } from "@/features/auth/auth.types";
+import { hasAnyPermission } from "@/features/auth/permissions";
+import { performanceApi } from "@/features/performance/performance.api";
 
 const roleCards = [
   {
@@ -87,10 +48,134 @@ const roleCards = [
 export function DashboardPage() {
   const user = useAuthStore((state) => state.user)!;
   const activeAssignment = user.roleAssignments[0];
+  const tenantId = user.tenantId ?? user.memberships?.[0]?.tenantId ?? "";
   const department =
     activeAssignment?.organization?.name ??
     activeAssignment?.role.department?.name ??
     "No department assigned";
+
+  const canReadUsers = hasAnyPermission(user, [
+    "platform.users.read",
+    "tenant.users.read",
+    "user.read"
+  ]);
+  const canReadOrganizations = hasAnyPermission(user, [
+    "platform.organizations.read",
+    "tenant.organizations.read"
+  ]);
+  const canReadRoles = hasAnyPermission(user, [
+    "platform.roles.read",
+    "tenant.roles.read",
+    "role.read"
+  ]);
+  const canReadPerformance = hasAnyPermission(user, [
+    "tenant.performance.read",
+    "tenant.performance.manage",
+    "team.performance.review",
+    "self.performance.read"
+  ]);
+  const isTenantAdmin = hasAnyPermission(user, [
+    "platform.tenants.read",
+    "tenant.users.read",
+    "tenant.settings.read",
+    "tenant.performance.manage"
+  ]);
+  const isManager = hasManagerRole(user);
+  const dashboardAudience = user.isSuperAdmin
+    ? "Platform dashboard"
+    : isTenantAdmin
+      ? "Admin dashboard"
+      : isManager
+        ? "Manager dashboard"
+        : "Employee dashboard";
+
+  const users = useQuery({
+    queryKey: ["dashboard", "users", tenantId],
+    queryFn: () => adminApi.listUsers({ tenantId, status: "ACTIVE", limit: 1000 }),
+    enabled: Boolean(tenantId) && canReadUsers
+  });
+  const organizations = useQuery({
+    queryKey: ["dashboard", "organizations", tenantId],
+    queryFn: () => adminApi.listOrganizations({ tenantId, limit: 1000 }),
+    enabled: Boolean(tenantId) && canReadOrganizations
+  });
+  const roles = useQuery({
+    queryKey: ["dashboard", "roles", tenantId],
+    queryFn: () => adminApi.listRoles(tenantId),
+    enabled: Boolean(tenantId) && canReadRoles
+  });
+  const performanceDashboard = useQuery({
+    queryKey: ["dashboard", "performance", tenantId],
+    queryFn: () => performanceApi.dashboard({ tenantId }),
+    enabled: Boolean(tenantId) && canReadPerformance
+  });
+  const reviews = useQuery({
+    queryKey: ["dashboard", "performance-reviews", tenantId],
+    queryFn: () => performanceApi.listReviews({ tenantId, limit: 3 }),
+    enabled: Boolean(tenantId) && canReadPerformance
+  });
+
+  const visibleUsers = users.data?.data ?? [];
+  const visibleOrganizations = organizations.data?.data ?? [];
+  const companyOrganizations = visibleOrganizations.filter(
+    (organization) =>
+      !organization.parent ||
+      ["company", "legal_entity"].includes(organization.organizationType)
+  );
+  const visibleRoles = roles.data?.data ?? [];
+  const visibleReviews = reviews.data?.data ?? [];
+  const managerReviews = visibleReviews.filter(
+    (review) => review.managerUserId === user.id
+  );
+  const ownReviews = visibleReviews.filter((review) => review.employeeUserId === user.id);
+  const pendingManagerReviews = managerReviews.filter(
+    (review) => !review.managerScore && review.status !== "APPROVED"
+  );
+
+  const metrics = [
+    {
+      label: "Tenant users",
+      value: visibleUsers.length,
+      detail: "Active tenant users",
+      available: canReadUsers,
+      loading: users.isLoading,
+      icon: UsersRound,
+      className: "metric-card-blue"
+    },
+    {
+      label: "Organizations",
+      value: companyOrganizations.length,
+      detail: "Company and legal entity records",
+      available: canReadOrganizations,
+      loading: organizations.isLoading,
+      icon: Building2,
+      className: "metric-card-lime"
+    },
+    {
+      label: "Roles",
+      value: visibleRoles.length,
+      detail: "From RBAC role catalog",
+      available: canReadRoles,
+      loading: roles.isLoading,
+      icon: KeyRound,
+      className: "metric-card-rose"
+    },
+    {
+      label: isManager ? "Assigned reviews" : "Reviews",
+      value: isManager
+        ? managerReviews.length
+        : performanceDashboard.data?.data.reviews ?? visibleReviews.length,
+      detail: isManager
+        ? `${pendingManagerReviews.length} need manager action`
+        : "From performance reviews",
+      available: canReadPerformance,
+      loading: performanceDashboard.isLoading,
+      icon: Target,
+      className: "metric-card-violet"
+    }
+  ];
+  const visibleMetrics = metrics.filter((metric) => metric.available);
+
   const valueFor = (key: string) => {
     if (key === "status") return user.status;
     if (key === "mfa") return user.mfaEnabled ? "Enabled" : "Not enabled";
@@ -102,13 +187,13 @@ export function DashboardPage() {
       <section className="ledger-surface overflow-hidden rounded-lg border border-primary/10 bg-white p-6 shadow-[0_24px_70px_rgba(14,22,63,0.08)] sm:p-8">
         <div className="grid gap-7 xl:grid-cols-[1fr_23rem]">
           <div>
-            <span className="callout-label">HRMS dashboard</span>
+            <span className="callout-label">{dashboardAudience}</span>
             <h1 className="mt-6 max-w-3xl text-4xl font-extrabold leading-tight text-primary sm:text-5xl">
-              Welcome, {user.firstName}. Track your people operations at a glance.
+              Welcome, {user.firstName}. {dashboardHeadline(user, isTenantAdmin, isManager)}
             </h1>
             <p className="mt-5 max-w-2xl text-muted-foreground">
-              Candidate movement, manager actions, leave status, and review
-              progress share one workspace with tenant-aware access.
+              This dashboard only shows records returned by the API for your role,
+              active tenant, and permissions.
             </p>
           </div>
           <div className="rounded-lg border border-primary/10 bg-primary p-5 text-white shadow-xl">
@@ -138,107 +223,157 @@ export function DashboardPage() {
         </div>
       </section>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {metricCards.map(({ label, value, delta, className, icon: Icon }) => (
-          <Card key={label} className={className}>
-            <CardContent className="p-5">
-              <div className="mb-5 flex items-center justify-between">
-                <span className="grid h-10 w-10 place-items-center rounded-md bg-white/85 shadow-sm">
-                  <Icon className="h-5 w-5" />
-                </span>
-                <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-bold">
-                  {delta}
-                </span>
-              </div>
-              <p className="text-sm font-semibold opacity-70">{label}</p>
-              <p className="mt-1 text-3xl font-extrabold">{value}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {visibleMetrics.length > 0 ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {visibleMetrics.map(({ label, value, detail, loading, className, icon: Icon }) => (
+            <Card key={label} className={className}>
+              <CardContent className="p-5">
+                <div className="mb-5 flex items-center justify-between">
+                  <span className="grid h-10 w-10 place-items-center rounded-md bg-white/85 shadow-sm">
+                    <Icon className="h-5 w-5" />
+                  </span>
+                  <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-bold">
+                    Live data
+                  </span>
+                </div>
+                <p className="text-sm font-semibold opacity-70">{label}</p>
+                <p className="mt-1 text-3xl font-extrabold">
+                  {loading ? <LoaderCircle className="h-7 w-7 animate-spin" /> : value}
+                </p>
+                <p className="mt-2 text-xs font-medium opacity-70">{detail}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : null}
 
       <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <Card>
-          <CardHeader className="flex-row items-start justify-between gap-4">
-            <div>
-              <span className="callout-label">Candidates</span>
-              <CardTitle className="mt-4">Shortlisted candidates</CardTitle>
-              <CardDescription>
-                Track active hiring movement and next actions.
-              </CardDescription>
-            </div>
-            <Badge variant="secondary">3 active</Badge>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-3 md:grid-cols-3">
-              {candidates.map(([name, role, status]) => (
-                <div
-                  key={name}
-                  className="rounded-lg border border-primary/10 bg-slate-50 p-4"
-                >
-                  <div className="mb-4 grid h-11 w-11 place-items-center rounded-full bg-white text-sm font-extrabold text-destructive shadow-sm">
-                    {name
-                      .split(" ")
-                      .map((part) => part[0])
-                      .join("")}
-                  </div>
-                  <p className="font-bold text-primary">{name}</p>
-                  <p className="text-sm text-muted-foreground">{role}</p>
-                  <Badge className="mt-4" variant="outline">
-                    {status}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <span className="callout-label w-fit">Managers</span>
-            <CardTitle className="pt-4">Today's focus</CardTitle>
-            <CardDescription>
-              Meetings and manager actions that need attention.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {meetings.map(([time, title]) => (
-              <div
-                key={title}
-                className="flex items-center gap-3 rounded-md border border-primary/10 bg-slate-50 p-3"
-              >
-                <span className="rounded-md bg-accent px-2.5 py-1 text-xs font-extrabold text-primary">
-                  {time}
-                </span>
-                <p className="text-sm font-semibold">{title}</p>
+        {canReadUsers ? (
+          <Card>
+            <CardHeader className="flex-row items-start justify-between gap-4">
+              <div>
+                <span className="callout-label">People</span>
+                <CardTitle className="mt-4">Tenant users</CardTitle>
+                <CardDescription>
+                  Real user records returned by the admin API.
+                </CardDescription>
               </div>
-            ))}
-          </CardContent>
-        </Card>
+              <Badge variant="secondary">{visibleUsers.length} visible</Badge>
+            </CardHeader>
+            <CardContent>
+              {users.isLoading ? (
+                <LoadingState />
+              ) : visibleUsers.length ? (
+                <div className="grid gap-3 md:grid-cols-3">
+                  {visibleUsers.slice(0, 3).map((tenantUser) => (
+                    <div
+                      key={tenantUser.id}
+                      className="rounded-lg border border-primary/10 bg-slate-50 p-4"
+                    >
+                      <div className="mb-4 grid h-11 w-11 place-items-center rounded-full bg-white text-sm font-extrabold text-destructive shadow-sm">
+                        {tenantUser.firstName[0]}
+                        {tenantUser.lastName[0]}
+                      </div>
+                      <p className="font-bold text-primary">
+                        {tenantUser.firstName} {tenantUser.lastName}
+                      </p>
+                      <p className="text-sm text-muted-foreground">{tenantUser.email}</p>
+                      <Badge className="mt-4" variant="outline">
+                        {tenantUser.status}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState message="No tenant users found." />
+              )}
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {canReadPerformance ? (
+          <Card>
+            <CardHeader>
+              <span className="callout-label w-fit">Performance</span>
+              <CardTitle className="pt-4">
+                {isManager ? "Manager review queue" : "Review focus"}
+              </CardTitle>
+              <CardDescription>
+                {isManager
+                  ? "Employees assigned to you as reporting manager."
+                  : "Real performance review records from the database."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {reviews.isLoading ? (
+                <LoadingState />
+              ) : (isManager ? managerReviews : visibleReviews).length ? (
+                (isManager ? managerReviews : visibleReviews).map((review) => (
+                  <div
+                    key={review.id}
+                    className="rounded-md border border-primary/10 bg-slate-50 p-3"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold">
+                        {review.employee.firstName} {review.employee.lastName}
+                      </p>
+                      <Badge variant="outline">{review.status}</Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {review.cycle.name}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <EmptyState
+                  message={
+                    isManager
+                      ? "No employee reviews are assigned to you right now."
+                      : ownReviews.length
+                        ? "No team performance reviews found."
+                        : "No performance reviews found."
+                  }
+                />
+              )}
+            </CardContent>
+          </Card>
+        ) : null}
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-        <Card>
-          <CardHeader>
-            <span className="callout-label w-fit">Water cooler</span>
-            <CardTitle className="pt-4">Team pulse</CardTitle>
-            <CardDescription>
-              Lightweight people signals for HR and managers.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {["4 birthdays this week", "2 policy acknowledgements due", "6 kudos shared"].map(
-              (item) => (
-                <div key={item} className="flex items-center gap-3 text-sm">
-                  <span className="grid h-8 w-8 place-items-center rounded-full bg-lime-100 text-primary">
-                    <Coffee className="h-4 w-4" />
-                  </span>
-                  {item}
-                </div>
-              )
-            )}
-          </CardContent>
-        </Card>
+        {canReadOrganizations ? (
+          <Card>
+            <CardHeader>
+              <span className="callout-label w-fit">Organizations</span>
+              <CardTitle className="pt-4">Tenant structure</CardTitle>
+              <CardDescription>
+                Real organization records returned by the API.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {organizations.isLoading ? (
+                <LoadingState />
+              ) : companyOrganizations.length ? (
+                companyOrganizations.slice(0, 4).map((organization) => (
+                  <div
+                    key={organization.id}
+                    className="flex items-center justify-between gap-3 rounded-md border border-primary/10 bg-slate-50 p-3"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold">{organization.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {organization._count.children} child units
+                      </p>
+                    </div>
+                    <Badge variant="outline">{organization.code}</Badge>
+                  </div>
+                ))
+              ) : (
+                <EmptyState message="No company organization found." />
+              )}
+            </CardContent>
+          </Card>
+        ) : null}
 
         <Card>
           <CardHeader>
@@ -280,6 +415,45 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+    </div>
+  );
+}
+
+function LoadingState() {
+  return (
+    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+      <LoaderCircle className="h-4 w-4 animate-spin" />
+      Loading database records...
+    </div>
+  );
+}
+
+function hasManagerRole(user: CurrentUser) {
+  const values = [
+    ...user.roles,
+    ...user.roleNames,
+    ...user.roleAssignments.flatMap((assignment) => [
+      assignment.role.code,
+      assignment.role.name
+    ])
+  ];
+  return values.some((value) => value.toLowerCase().includes("manager"));
+}
+
+function dashboardHeadline(
+  user: CurrentUser,
+  isTenantAdmin: boolean,
+  isManager: boolean
+) {
+  if (user.isSuperAdmin || isTenantAdmin) return "Track tenant data at a glance.";
+  if (isManager) return "Review your team and monitor pending manager actions.";
+  return "Track your own HR and performance context.";
+}
+
+function EmptyState({ message }: { message: string }) {
+  return (
+    <div className="rounded-md border border-dashed border-primary/20 bg-slate-50 p-4 text-sm text-muted-foreground">
+      {message}
     </div>
   );
 }

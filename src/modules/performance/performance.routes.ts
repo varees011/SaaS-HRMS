@@ -45,13 +45,18 @@ const reviewPerformance = [
   "team.performance.review"
 ] as const;
 
+const submitManagerReview = [
+  ...reviewPerformance,
+  "self.performance.submit"
+] as const;
+
 export const performanceRouter: ExpressRouter = Router();
 performanceRouter.use(authenticate);
 performanceRouter.use(establishTenantAccess);
 
 performanceRouter.get(
   "/dashboard",
-  requireAnyPermission(...readPerformance),
+  requireAnyPermission(...readOwnPerformance),
   validate({ query: performanceListQuerySchema }),
   performanceController.dashboard.bind(performanceController)
 );
@@ -176,7 +181,7 @@ performanceRouter.patch(
 );
 performanceRouter.patch(
   "/reviews/:id/manager-assessment",
-  requireAnyPermission(...reviewPerformance),
+  requireAnyPermission(...submitManagerReview),
   validate({ params: idParamsSchema, body: managerAssessmentSchema }),
   performanceController.submitManagerAssessment.bind(performanceController)
 );

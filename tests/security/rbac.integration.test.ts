@@ -10,6 +10,7 @@ import {
 
 const seededPassword =
   process.env.RBAC_TEST_PASSWORD ?? "Qg5Y3LPJ%Xb$rj2DMNEYP!wr";
+const developmentOtpEmail = "varees1107@gmail.com";
 
 const canonicalSeedUsers = [
   {
@@ -73,15 +74,22 @@ let baseUrl: string;
 let prisma: typeof import("../../src/core/db.js").prisma;
 let cryptoService: typeof import("../../src/modules/auth/crypto.service.js").cryptoService;
 let tokenService: typeof import("../../src/modules/auth/token.service.js").tokenService;
+const deliveredEmailOtps = new Map<string, string>();
 
 beforeAll(async () => {
   const appModule = await import("../../src/app.js");
   const prismaModule = await import("../../src/core/db.js");
   const cryptoModule = await import("../../src/modules/auth/crypto.service.js");
+  const emailOtpModule = await import("../../src/modules/auth/email-otp-notifier.js");
   const tokenModule = await import("../../src/modules/auth/token.service.js");
   prisma = prismaModule.prisma;
   cryptoService = cryptoModule.cryptoService;
   tokenService = tokenModule.tokenService;
+  emailOtpModule.setEmailOtpNotifierForTesting({
+    async send(input) {
+      deliveredEmailOtps.set(input.email, input.otp);
+    }
+  });
   await ensureCanonicalSeedUsers();
   server = createServer(appModule.createApp());
   await new Promise<void>((resolve) => server.listen(0, resolve));
@@ -185,6 +193,42 @@ describe("RBAC and tenant isolation", () => {
     expect(settingsResponse.status).toBe(200);
   });
 
+  it("filters organization lists by organization type", async () => {
+    const token = await platformTestAccessToken();
+    const tenant = await prisma.tenant.findUniqueOrThrow({
+      where: { code: "venturesoft" },
+      select: { id: true }
+    });
+
+    const companiesResponse = await api(
+      `/api/v1/admin/organizations?tenantId=${tenant.id}&organizationType=company&limit=100`,
+      token
+    );
+    const departmentsResponse = await api(
+      `/api/v1/admin/organizations?tenantId=${tenant.id}&organizationType=department&limit=100`,
+      token
+    );
+
+    expect(companiesResponse.status).toBe(200);
+    expect(departmentsResponse.status).toBe(200);
+    const companies = (await companiesResponse.json()) as {
+      data: Array<{ name: string; organizationType: string }>;
+    };
+    const departments = (await departmentsResponse.json()) as {
+      data: Array<{ name: string; organizationType: string }>;
+    };
+    expect(companies.data).toEqual([
+      expect.objectContaining({
+        name: "VentureSoft.AI",
+        organizationType: "company"
+      })
+    ]);
+    expect(departments.data.length).toBeGreaterThan(0);
+    expect(departments.data.every((item) => item.organizationType === "department")).toBe(
+      true
+    );
+  });
+
   it.each([
     ["Organization Admin", "orgadmin@venturesoft.ai", "ORGANIZATION_ADMIN"],
     ["HR Manager", "hrmanager", "HR_MANAGER"],
@@ -229,10 +273,98 @@ describe("RBAC and tenant isolation", () => {
     });
   });
 
+  it("allows tenant admins to create only organization-bound custom roles", async () => {
+    const unique = Date.now();
+    const token = await testAccessToken("venturesoft", "orgadmin@venturesoft.ai");
+    const tenantId = await currentTenantId(token);
+    const department = await prisma.organization.findFirstOrThrow({
+      where: { tenantId, organizationType: "department", deletedAt: null },
+      select: { id: true }
+    });
+    const permission = await prisma.permission.findFirstOrThrow({
+      where: { code: "user.read", deletedAt: null },
+      select: { id: true }
+    });
+    const code = `ORG_BOUND_ROLE_${unique}`;
+    let roleId: string | undefined;
+
+    try {
+      const tenantWideResponse = await api("/api/v1/admin/roles", token, {
+        method: "POST",
+        body: {
+          tenantId,
+          code: `TENANT_ROLE_${unique}`,
+          name: `Tenant Role ${unique}`,
+          roleType: "TENANT",
+          permissionIds: [permission.id]
+        }
+      });
+      expect(tenantWideResponse.status).toBe(403);
+
+      const missingDepartmentResponse = await api("/api/v1/admin/roles", token, {
+        method: "POST",
+        body: {
+          tenantId,
+          code: `ORG_ROLE_NO_DEPT_${unique}`,
+          name: `Org Role No Dept ${unique}`,
+          roleType: "ORGANIZATION",
+          permissionIds: [permission.id]
+        }
+      });
+      expect(missingDepartmentResponse.status).toBe(422);
+
+      const response = await api("/api/v1/admin/roles", token, {
+        method: "POST",
+        body: {
+          tenantId,
+          departmentId: department.id,
+          code,
+          name: `Org Bound Role ${unique}`,
+          roleType: "ORGANIZATION",
+          permissionIds: [permission.id]
+        }
+      });
+      expect(response.status).toBe(201);
+      const payload = (await response.json()) as {
+        data: { id: string; departmentId: string; roleType: string };
+      };
+      roleId = payload.data.id;
+      expect(payload.data).toMatchObject({
+        departmentId: department.id,
+        roleType: "ORGANIZATION"
+      });
+    } finally {
+      if (roleId) await cleanupRole(roleId);
+      await prisma.role.deleteMany({
+        where: {
+          tenantId,
+          code: { in: [`TENANT_ROLE_${unique}`, `ORG_ROLE_NO_DEPT_${unique}`, code] }
+        }
+      });
+    }
+  });
+
+  it("blocks tenant admins from editing default system roles", async () => {
+    const token = await testAccessToken("venturesoft", "orgadmin@venturesoft.ai");
+    const tenantId = await currentTenantId(token);
+    const role = await prisma.role.findFirstOrThrow({
+      where: { tenantId, code: "HR_MANAGER", isSystemRole: true, deletedAt: null },
+      select: { id: true }
+    });
+
+    const response = await api(`/api/v1/admin/roles/${role.id}`, token, {
+      method: "PATCH",
+      body: { name: "Changed HR Manager" }
+    });
+
+    expect(response.status).toBe(409);
+  });
+
   it("rotates refresh tokens, revokes them on logout, and rejects reuse", async () => {
-    const loginResult = await loginResponse("venturesoft", "employee@venturesoft.ai");
-    expect(loginResult.status).toBe(200);
-    const originalCookie = refreshCookie(loginResult);
+    const originalCookie = await loginRefreshCookie(
+      "venturesoft",
+      "employee@venturesoft.ai"
+    );
 
     const refreshResult = await fetch(`${baseUrl}/api/v1/auth/refresh`, {
       method: "POST",
@@ -598,6 +730,40 @@ describe("RBAC and tenant isolation", () => {
       employeeRole.id,
       otherDepartment.id
     );
+    const customEmployeeRole = await prisma.role.create({
+      data: {
+        tenantId: tenant.id,
+        departmentId: ownDepartment.id,
+        code: `NOC_ENGINEER_${unique}`,
+        name: "NOC Engineer",
+        roleType: "SELF",
+        isSystemRole: false
+      },
+      select: { id: true }
+    });
+    const customManagerRole = await prisma.role.create({
+      data: {
+        tenantId: tenant.id,
+        departmentId: ownDepartment.id,
+        code: `DELIVERY_MANAGER_${unique}`,
+        name: "Delivery Manager",
+        roleType: "SELF",
+        isSystemRole: false
+      },
+      select: { id: true }
+    });
+    const customEmployee = await createTenantUser(
+      `org-scope-noc-${unique}`,
+      tenant.id,
+      customEmployeeRole.id,
+      ownDepartment.id
+    );
+    const customManager = await createTenantUser(
+      `org-scope-delivery-manager-${unique}`,
+      tenant.id,
+      customManagerRole.id,
+      ownDepartment.id
+    );
 
     try {
       const response = await api(
@@ -611,9 +777,260 @@ describe("RBAC and tenant isolation", () => {
       expect(ids).toContain(ownUser.id);
       expect(ids).toContain(scoped.userId);
       expect(ids).not.toContain(otherUser.id);
+
+      const departmentResponse = await api(
+        `/api/v1/admin/users?tenantId=${tenant.id}&departmentId=${ownDepartment.id}&role=employee&status=ACTIVE&limit=100`,
+        scoped.token
+      );
+      expect(departmentResponse.status).toBe(200);
+      const departmentPayload = (await departmentResponse.json()) as {
+        data: Array<{ id: string }>;
+      };
+      const departmentIds = departmentPayload.data.map((item) => item.id);
+      expect(departmentIds).toContain(ownUser.id);
+      expect(departmentIds).toContain(customEmployee.id);
+      expect(departmentIds).not.toContain(otherUser.id);
+      expect(departmentIds).not.toContain(customManager.id);
+
+      const managerResponse = await api(
+        `/api/v1/admin/users?tenantId=${tenant.id}&departmentId=${ownDepartment.id}&role=manager&status=ACTIVE&limit=100`,
+        scoped.token
+      );
+      expect(managerResponse.status).toBe(200);
+      const managerPayload = (await managerResponse.json()) as {
+        data: Array<{ id: string }>;
+      };
+      const managerIds = managerPayload.data.map((item) => item.id);
+      expect(managerIds).toContain(customManager.id);
+      expect(managerIds).not.toContain(customEmployee.id);
     } finally {
-      await cleanupUsers([scoped.userId, ownUser.id, otherUser.id]);
+      await cleanupUsers([
+        scoped.userId,
+        ownUser.id,
+        otherUser.id,
+        customEmployee.id,
+        customManager.id
+      ]);
       await cleanupRole(scoped.roleId);
+      await cleanupRole(customEmployeeRole.id);
+      await cleanupRole(customManagerRole.id);
+    }
+  });
+
+  it("derives performance review manager from the employee reporting manager", async () => {
+    const unique = Date.now();
+    const token = await testAccessToken("venturesoft", "orgadmin@venturesoft.ai");
+    const tenant = await prisma.tenant.findUniqueOrThrow({
+      where: { code: "venturesoft" },
+      select: { id: true }
+    });
+    const department = await prisma.organization.findFirstOrThrow({
+      where: {
+        tenantId: tenant.id,
+        organizationType: "department",
+        deletedAt: null
+      },
+      select: { id: true }
+    });
+    const employeeRole = await prisma.role.findFirstOrThrow({
+      where: { tenantId: tenant.id, code: "EMPLOYEE", deletedAt: null },
+      select: { id: true }
+    });
+    const reportingManager = await prisma.user.findFirstOrThrow({
+      where: {
+        email: "manager@venturesoft.ai",
+        deletedAt: null
+      },
+      select: { id: true }
+    });
+    const postedManager = await prisma.user.findFirstOrThrow({
+      where: {
+        email: "hrmanager@venturesoft.ai",
+        deletedAt: null
+      },
+      select: { id: true }
+    });
+    const employee = await createTenantUser(
+      `review-derived-manager-${unique}`,
+      tenant.id,
+      employeeRole.id,
+      department.id
+    );
+    await prisma.user.update({
+      where: { id: employee.id },
+      data: {
+        preferences: { reportingManagerUserId: reportingManager.id }
+      }
+    });
+    const cycle = await prisma.performanceReviewCycle.create({
+      data: {
+        tenantId: tenant.id,
+        organizationId: department.id,
+        name: `Derived Manager Cycle ${unique}`,
+        startDate: new Date("2026-01-01"),
+        endDate: new Date("2026-12-31"),
+        status: "ACTIVE"
+      },
+      select: { id: true }
+    });
+
+    try {
+      const response = await api("/api/v1/performance/reviews/bulk", token, {
+        method: "POST",
+        body: {
+          tenantId: tenant.id,
+          cycleId: cycle.id,
+          employeeUserIds: [employee.id],
+          managerUserId: postedManager.id,
+          organizationId: department.id
+        }
+      });
+
+      expect(response.status).toBe(201);
+      const review = await prisma.performanceReview.findFirstOrThrow({
+        where: {
+          tenantId: tenant.id,
+          cycleId: cycle.id,
+          employeeUserId: employee.id,
+          deletedAt: null
+        },
+        select: { managerUserId: true }
+      });
+      expect(review.managerUserId).toBe(reportingManager.id);
+      expect(review.managerUserId).not.toBe(postedManager.id);
+    } finally {
+      await prisma.performanceReview.deleteMany({ where: { cycleId: cycle.id } });
+      await prisma.performanceReviewCycle.deleteMany({ where: { id: cycle.id } });
+      await cleanupUsers([employee.id]);
+    }
+  });
+
+  it("allows an assigned reporting manager with self-service permissions to review employees", async () => {
+    const unique = Date.now();
+    const tenant = await prisma.tenant.findUniqueOrThrow({
+      where: { code: "venturesoft" },
+      select: { id: true }
+    });
+    const department = await prisma.organization.findFirstOrThrow({
+      where: {
+        tenantId: tenant.id,
+        organizationType: "department",
+        deletedAt: null
+      },
+      select: { id: true }
+    });
+    const permissions = await prisma.permission.findMany({
+      where: {
+        code: { in: ["self.performance.read", "self.performance.submit"] },
+        deletedAt: null
+      },
+      select: { id: true }
+    });
+    expect(permissions).toHaveLength(2);
+    const managerRole = await prisma.role.create({
+      data: {
+        tenantId: tenant.id,
+        departmentId: department.id,
+        code: `DELIVERY_MANAGER_REVIEWER_${unique}`,
+        name: "Delivery Manager",
+        roleType: "SELF",
+        isSystemRole: false,
+        permissions: {
+          create: permissions.map((permission) => ({ permissionId: permission.id }))
+        }
+      },
+      select: { id: true }
+    });
+    const employeeRole = await prisma.role.findFirstOrThrow({
+      where: { tenantId: tenant.id, code: "EMPLOYEE", deletedAt: null },
+      select: { id: true }
+    });
+    const manager = await createTenantUser(
+      `assigned-review-manager-${unique}`,
+      tenant.id,
+      managerRole.id,
+      department.id
+    );
+    const employee = await createTenantUser(
+      `assigned-review-employee-${unique}`,
+      tenant.id,
+      employeeRole.id,
+      department.id
+    );
+    await prisma.user.update({
+      where: { id: employee.id },
+      data: { preferences: { reportingManagerUserId: manager.id } }
+    });
+    const cycle = await prisma.performanceReviewCycle.create({
+      data: {
+        tenantId: tenant.id,
+        organizationId: department.id,
+        name: `Assigned Manager Cycle ${unique}`,
+        startDate: new Date("2026-01-01"),
+        endDate: new Date("2026-12-31"),
+        status: "ACTIVE"
+      },
+      select: { id: true }
+    });
+    const review = await prisma.performanceReview.create({
+      data: {
+        tenantId: tenant.id,
+        cycleId: cycle.id,
+        employeeUserId: employee.id,
+        managerUserId: manager.id,
+        organizationId: department.id
+      },
+      select: { id: true }
+    });
+    const managerToken = await issueAccessToken(
+      `assigned-review-manager-${unique}@venturesoft.ai`,
+      tenant.id
+    );
+
+    try {
+      const listResponse = await api(
+        `/api/v1/performance/reviews?tenantId=${tenant.id}&limit=100`,
+        managerToken.token
+      );
+      expect(listResponse.status).toBe(200);
+      const listPayload = (await listResponse.json()) as {
+        data: Array<{ id: string; managerUserId: string | null }>;
+      };
+      expect(listPayload.data).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: review.id, managerUserId: manager.id })
+        ])
+      );
+
+      const assessmentResponse = await api(
+        `/api/v1/performance/reviews/${review.id}/manager-assessment`,
+        managerToken.token,
+        {
+          method: "PATCH",
+          body: {
+            managerScore: 4.2,
+            finalScore: 4.2,
+            managerComments: "Reviewed by assigned reporting manager.",
+            status: "MANAGER_REVIEWED"
+          }
+        }
+      );
+      expect(assessmentResponse.status).toBe(200);
+      await expect(
+        prisma.performanceReview.findUnique({
+          where: { id: review.id },
+          select: { managerScore: true, managerUserId: true }
+        })
+      ).resolves.toMatchObject({
+        managerUserId: manager.id,
+        managerScore: expect.any(Object)
+      });
+    } finally {
+      await prisma.authSession.deleteMany({ where: { userId: manager.id } });
+      await prisma.performanceReview.deleteMany({ where: { cycleId: cycle.id } });
+      await prisma.performanceReviewCycle.deleteMany({ where: { id: cycle.id } });
+      await cleanupUsers([manager.id, employee.id]);
+      await cleanupRole(managerRole.id);
     }
   });
 
@@ -1031,6 +1448,16 @@ describe("RBAC and tenant isolation", () => {
         })
       ).resolves.toMatchObject({ status: "DISABLED" });
 
+      const activeUsersResponse = await api(
+        `/api/v1/admin/users?tenantId=${tenant.id}&status=ACTIVE&limit=1000`,
+        orgAdminToken.token
+      );
+      expect(activeUsersResponse.status).toBe(200);
+      const activeUsers = (await activeUsersResponse.json()) as {
+        data: Array<{ id: string }>;
+      };
+      expect(activeUsers.data.map((item) => item.id)).not.toContain(userId);
+
       const activateResponse = await api(
         `/api/v1/admin/users/${userId}`,
         orgAdminToken.token,
@@ -1209,9 +1636,95 @@ async function login(
   const response = await loginResponse(tenant, login);
   expect(response.status).toBe(200);
   const payload = (await response.json()) as {
-    data: { accessToken: string };
+    data:
+      | { accessToken: string }
+      | { otpRequired: true; challengeId: string };
   };
+  if ("otpRequired" in payload.data) {
+    return verifyLoginOtp(payload.data.challengeId);
+  }
   return payload.data.accessToken;
+}
+
+async function testAccessToken(
+  tenantCode: string | undefined,
+  login: string
+): Promise<string> {
+  const tenant = tenantCode
+    ? await prisma.tenant.findUniqueOrThrow({
+        where: { code: tenantCode },
+        select: { id: true }
+      })
+    : null;
+  const user = await prisma.user.findFirstOrThrow({
+    where: {
+      OR: [
+        { email: login },
+        { username: login },
+        ...(isUuid(login) ? [{ id: login }] : [])
+      ],
+      status: "ACTIVE",
+      deletedAt: null
+    },
+    select: { id: true }
+  });
+  const session = await prisma.authSession.create({
+    data: {
+      tenantId: tenant?.id ?? null,
+      userId: user.id,
+      refreshTokenHash: "f".repeat(64),
+      refreshTokenFamily: randomUUID(),
+      expiresAt: new Date(Date.now() + 86_400_000)
+    },
+    select: { id: true }
+  });
+  return tokenService.signAccessToken({
+    sub: user.id,
+    tenant_id: tenant?.id ?? null,
+    session_id: session.id,
+    role_ids: [],
+    roles: [],
+    role_names: [],
+    permissions: [],
+    is_platform_admin: false,
+    amr: ["pwd"]
+  });
+}
+
+async function platformTestAccessToken(): Promise<string> {
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { email: "superadmin@venturesoft.ai" },
+    select: { id: true }
+  });
+  const role = await prisma.role.findFirstOrThrow({
+    where: { tenantId: null, code: PLATFORM_ROLE.code, deletedAt: null },
+    select: { id: true, name: true }
+  });
+  const session = await prisma.authSession.create({
+    data: {
+      tenantId: null,
+      userId: user.id,
+      refreshTokenHash: "p".repeat(64),
+      refreshTokenFamily: randomUUID(),
+      expiresAt: new Date(Date.now() + 86_400_000)
+    },
+    select: { id: true }
+  });
+  return tokenService.signAccessToken({
+    sub: user.id,
+    tenant_id: null,
+    session_id: session.id,
+    role_ids: [role.id],
+    roles: [PLATFORM_ROLE.code],
+    role_names: [role.name],
+    permissions: PERMISSIONS.map((permission) => permission.code),
+    is_platform_admin: true,
+    amr: ["pwd"]
+  });
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 function loginResponse(
@@ -1223,6 +1736,50 @@ function loginResponse(
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ ...(tenant ? { tenant } : {}), login, password: seededPassword })
   });
+}
+
+// Completes the email OTP checkpoint in integration tests without logging or exposing OTP values.
+async function verifyLoginOtp(challengeId: string): Promise<string> {
+  const response = await verifyLoginOtpResponse(challengeId);
+  const payload = (await response.json()) as {
+    data: { accessToken: string };
+  };
+  return payload.data.accessToken;
+}
+
+// Completes the email OTP checkpoint and returns the refresh cookie for session tests.
+async function loginRefreshCookie(
+  tenant: string | undefined,
+  login: string
+): Promise<string> {
+  const response = await loginResponse(tenant, login);
+  expect(response.status).toBe(200);
+  const payload = (await response.json()) as {
+    data:
+      | { accessToken: string }
+      | { otpRequired: true; challengeId: string };
+  };
+  if (!("otpRequired" in payload.data)) return refreshCookie(response);
+  return refreshCookie(await verifyLoginOtpResponse(payload.data.challengeId));
+}
+
+// Posts the captured OTP code to the verification endpoint used by the browser flow.
+async function verifyLoginOtpResponse(challengeId: string): Promise<Response> {
+  const challenge = await prisma.loginOtp.findUniqueOrThrow({
+    where: { id: challengeId },
+    select: { user: { select: { email: true } } }
+  });
+  const code =
+    deliveredEmailOtps.get(challenge.user.email) ??
+    deliveredEmailOtps.get(developmentOtpEmail);
+  expect(code).toEqual(expect.stringMatching(/^\d{6}$/));
+  const response = await fetch(`${baseUrl}/api/v1/auth/otp/verify`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ challengeId, code: code! })
+  });
+  expect(response.status).toBe(200);
+  return response;
 }
 
 function refreshCookie(response: Response): string {

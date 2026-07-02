@@ -1,0 +1,12 @@
+ M frontend/src/features/admin/admin.api.ts
+ M frontend/src/features/admin/roles-page.tsx
+ M frontend/src/features/dashboard/dashboard-page.tsx
+ M frontend/src/features/performance/performance-page.tsx
+ M package.json
+ M src/modules/admin/admin.schema.ts
+ M src/modules/admin/admin.service.ts
+ M tests/security/rbac.integration.test.ts
+ M vitest.config.ts
+?? .codex-restore/
+?? HRMS-SaaS-Architecture-Phase1.md
+?? docs/phase1-saas-hrms-performance-architecture.md

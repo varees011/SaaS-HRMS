@@ -45,4 +45,13 @@ describe("authentication cryptography", () => {
       cryptoService.hashToken("other-token")
     );
   });
+
+  it("generates fixed-width numeric OTP codes", async () => {
+    const { cryptoService } = await import(
+      "../../src/modules/auth/crypto.service.js"
+    );
+    const code = cryptoService.randomNumericCode();
+
+    expect(code).toMatch(/^\d{6}$/);
+  });
 });

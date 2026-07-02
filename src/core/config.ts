@@ -23,7 +23,14 @@ const envSchema = z
     MFA_ISSUER: z.string().min(1).default("SaaS HRMS"),
     MFA_ENCRYPTION_KEY: z.string().length(64),
     AUTH_COOKIE_SECURE: booleanFromString,
-    CORS_ORIGINS: z.string().default("http://localhost:5173")
+    CORS_ORIGINS: z.string().default("http://localhost:5173"),
+    SMTP_HOST: z.string().trim().optional(),
+    SMTP_PORT: z.coerce.number().int().positive().optional(),
+    SMTP_SECURE: booleanFromString.optional(),
+    SMTP_USER: z.string().trim().optional(),
+    SMTP_PASS: z.string().optional(),
+    SMTP_FROM_EMAIL: z.string().trim().email().optional(),
+    SMTP_FROM_NAME: z.string().trim().default("VentureSoft HRMS")
   })
   .superRefine((value, context) => {
     if (value.NODE_ENV === "production" && !value.JWT_REFRESH_SECRET) {
@@ -32,6 +39,24 @@ const envSchema = z
         path: ["JWT_REFRESH_SECRET"],
         message: "JWT_REFRESH_SECRET is required in production."
       });
+    }
+    const hasAnySmtp = Boolean(
+      value.SMTP_HOST ||
+        value.SMTP_PORT ||
+        value.SMTP_USER ||
+        value.SMTP_PASS ||
+        value.SMTP_FROM_EMAIL
+    );
+    if (hasAnySmtp) {
+      for (const key of ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS", "SMTP_FROM_EMAIL"] as const) {
+        if (!value[key]) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [key],
+            message: `${key} is required when SMTP email delivery is configured.`
+          });
+        }
+      }
     }
   });
 

@@ -16,6 +16,7 @@
     "seed:super-admin": "tsx prisma/seed.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "verify": "pnpm typecheck && pnpm test && pnpm --dir frontend typecheck && pnpm build && pnpm frontend:build",
     "frontend:dev": "pnpm --dir frontend dev",
     "frontend:build": "pnpm --dir frontend build",
     "frontend:test": "pnpm --dir frontend test"
@@ -30,6 +31,7 @@
     "express-rate-limit": "^8.5.2",
     "helmet": "^8.1.0",
     "jose": "^6.0.11",
+    "nodemailer": "^9.0.3",
     "otplib": "^12.0.1",
     "pino": "^9.7.0",
     "pino-http": "^10.4.0",
@@ -40,6 +42,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/node": "^24.0.3",
+    "@types/nodemailer": "^8.0.1",
     "prisma": "6.19.3",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",

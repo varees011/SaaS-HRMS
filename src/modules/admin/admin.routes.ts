@@ -82,7 +82,15 @@ adminRouter.delete(
 
 adminRouter.get(
   "/users",
-  requireAnyPermission("platform.users.read", "tenant.users.read", "user.read"),
+  requireAnyPermission(
+    "platform.users.read",
+    "tenant.users.read",
+    "user.read",
+    "employees.directory.read",
+    "employees.profile.read",
+    "team.members.read",
+    "self.profile.read"
+  ),
   validate({ query: adminListQuerySchema }),
   adminController.listUsers.bind(adminController)
 );

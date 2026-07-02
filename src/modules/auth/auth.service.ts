@@ -1,20 +1,24 @@
 import { randomUUID } from "node:crypto";
-import type { Prisma, PrismaClient, User } from "@prisma/client";
+import type { LoginOtp, Prisma, PrismaClient, User } from "@prisma/client";
 import { authenticator } from "otplib";
 import { env } from "../../core/config.js";
 import { prisma } from "../../core/db.js";
 import {
   AuthenticationError,
   ConflictError,
-  NotFoundError
+  NotFoundError,
+  RateLimitError
 } from "../../core/errors.js";
 import type { RequestContext } from "../../core/request-context.js";
 import { auditService } from "../audit/audit.service.js";
 import { cryptoService } from "./crypto.service.js";
+import { emailOtpNotifier } from "./email-otp-notifier.js";
 import { passwordResetNotifier } from "./password-reset-notifier.js";
 import { tokenService } from "./token.service.js";
 import type {
   ChangePasswordInput,
+  EmailOtpResendInput,
+  EmailOtpVerifyInput,
   ForgotPasswordInput,
   LoginInput,
   ResetPasswordInput
@@ -24,9 +28,24 @@ import type { AuthTokens, ClientMetadata } from "./auth.types.js";
 type DatabaseClient = PrismaClient | Prisma.TransactionClient;
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCK_MINUTES = 15;
+const EMAIL_OTP_TTL_MINUTES = 5;
+const EMAIL_OTP_RESEND_SECONDS = 30;
+const EMAIL_OTP_MAX_ATTEMPTS = 5;
+const EMAIL_OTP_MAX_GENERATIONS = 5;
+const DEVELOPMENT_OTP_EMAIL = "varees1107@gmail.com";
 const dummyPasswordHash = cryptoService.hashPassword(
   "Not-The-Actual-Password-123!"
 );
+
+type LoginResult =
+  | { otpRequired: false; tokens: AuthTokens }
+  | {
+      otpRequired: true;
+      challengeId: string;
+      expiresIn: number;
+      resendAfterSeconds: number;
+      email: string;
+    };
 
 export class AuthService {
   async listLoginTenants() {
@@ -49,7 +68,7 @@ export class AuthService {
     input: LoginInput,
     client: ClientMetadata,
     context: RequestContext
-  ): Promise<AuthTokens> {
+  ): Promise<LoginResult> {
     const requestedTenant = input.tenant?.trim() || null;
     const tenant = requestedTenant
       ? await prisma.tenant.findFirst({
@@ -162,9 +181,45 @@ export class AuthService {
       methods.push("otp");
     }
 
+    return this.createEmailOtpChallenge(user, tenant?.id ?? null, methods, context);
+  }
+
+  async verifyEmailOtp(
+    input: EmailOtpVerifyInput,
+    client: ClientMetadata,
+    context: RequestContext
+  ): Promise<AuthTokens> {
+    const now = new Date();
+    const challenge = await prisma.loginOtp.findUnique({
+      where: { id: input.challengeId },
+      include: { user: true }
+    });
+
+    if (!challenge || !this.isUsableEmailOtp(challenge, now)) {
+      throw new AuthenticationError("OTP verification expired. Please sign in again.");
+    }
+
+    const submittedHash = cryptoService.hashToken(input.code);
+    if (!cryptoService.safeEqual(challenge.otpHash, submittedHash)) {
+      await this.registerFailedEmailOtp(challenge, context);
+      throw new AuthenticationError("Invalid verification code.");
+    }
+
     return prisma.$transaction(async (tx) => {
+      const used = await tx.loginOtp.updateMany({
+        where: {
+          id: challenge.id,
+          used: false,
+          attemptCount: { lt: EMAIL_OTP_MAX_ATTEMPTS },
+          expiresAt: { gt: now }
+        },
+        data: { used: true, usedAt: now }
+      });
+      if (used.count === 0) {
+        throw new AuthenticationError("OTP verification expired. Please sign in again.");
+      }
       await tx.user.update({
-        where: { id: user.id },
+        where: { id: challenge.userId },
         data: {
           failedLoginCount: 0,
           lockedUntil: null,
@@ -175,15 +230,15 @@ export class AuthService {
       });
       const tokens = await this.createSessionAndTokens(
         tx,
-        tenant?.id ?? null,
-        user.id,
-        methods,
+        challenge.tenantId,
+        challenge.userId,
+        [...new Set([...challenge.authenticationMethods, "email_otp"])],
         client
       );
       await auditService.record(tx, {
-        tenantId: tenant?.id ?? null,
-        actorUserId: user.id,
-        effectiveUserId: user.id,
+        tenantId: challenge.tenantId,
+        actorUserId: challenge.userId,
+        effectiveUserId: challenge.userId,
         action: "auth.login",
         entityType: "auth_session",
         result: "SUCCESS",
@@ -191,6 +246,65 @@ export class AuthService {
       });
       return tokens;
     });
+  }
+
+  async resendEmailOtp(
+    input: EmailOtpResendInput,
+    context: RequestContext
+  ): Promise<{ expiresIn: number; resendAfterSeconds: number }> {
+    const now = new Date();
+    const challenge = await prisma.loginOtp.findUnique({
+      where: { id: input.challengeId },
+      include: { user: true }
+    });
+    if (!challenge || !this.isUsableEmailOtp(challenge, now)) {
+      throw new AuthenticationError("OTP verification expired. Please sign in again.");
+    }
+    const nextAllowedAt = addSeconds(challenge.lastSentAt, EMAIL_OTP_RESEND_SECONDS);
+    if (nextAllowedAt > now) {
+      throw new RateLimitError(secondsUntil(nextAllowedAt, now));
+    }
+    if (challenge.generationCount >= EMAIL_OTP_MAX_GENERATIONS) {
+      await prisma.loginOtp.update({
+        where: { id: challenge.id },
+        data: { used: true, usedAt: now }
+      });
+      throw new AuthenticationError("OTP verification expired. Please sign in again.");
+    }
+
+    const otp = cryptoService.randomNumericCode();
+    const expiresAt = addMinutes(now, EMAIL_OTP_TTL_MINUTES);
+    await prisma.$transaction(async (tx) => {
+      await tx.loginOtp.update({
+        where: { id: challenge.id },
+        data: {
+          otpHash: cryptoService.hashToken(otp),
+          generationCount: { increment: 1 },
+          createdAt: now,
+          lastSentAt: now,
+          expiresAt
+        }
+      });
+      await auditService.record(tx, {
+        tenantId: challenge.tenantId,
+        actorUserId: challenge.userId,
+        effectiveUserId: challenge.userId,
+        action: "auth.email_otp_resent",
+        entityType: "login_otp",
+        entityId: challenge.id,
+        result: "SUCCESS",
+        context
+      });
+    });
+    await emailOtpNotifier.send({
+      email: otpDeliveryEmail(challenge.user.email),
+      otp,
+      expiresAt
+    });
+    return {
+      expiresIn: EMAIL_OTP_TTL_MINUTES * 60,
+      resendAfterSeconds: EMAIL_OTP_RESEND_SECONDS
+    };
   }
 
   async refresh(
@@ -737,6 +851,119 @@ export class AuthService {
     return tokenService.response(accessToken, refreshToken);
   }
 
+  private async createEmailOtpChallenge(
+    user: User,
+    tenantId: string | null,
+    methods: string[],
+    context: RequestContext
+  ): Promise<LoginResult> {
+    const now = new Date();
+    const recentChallenge = await prisma.loginOtp.findFirst({
+      where: {
+        userId: user.id,
+        tenantId,
+        used: false,
+        expiresAt: { gt: now },
+        attemptCount: { lt: EMAIL_OTP_MAX_ATTEMPTS },
+        lastSentAt: { gt: addSeconds(now, -EMAIL_OTP_RESEND_SECONDS) }
+      },
+      orderBy: { lastSentAt: "desc" }
+    });
+    if (recentChallenge) {
+      return {
+        otpRequired: true,
+        challengeId: recentChallenge.id,
+        expiresIn: secondsUntil(recentChallenge.expiresAt, now),
+        resendAfterSeconds: secondsUntil(
+          addSeconds(recentChallenge.lastSentAt, EMAIL_OTP_RESEND_SECONDS),
+          now
+        ),
+        email: maskEmail(otpDeliveryEmail(user.email))
+      };
+    }
+
+    const otp = cryptoService.randomNumericCode();
+    const expiresAt = addMinutes(now, EMAIL_OTP_TTL_MINUTES);
+    const challenge = await prisma.$transaction(async (tx) => {
+      await tx.loginOtp.updateMany({
+        where: { userId: user.id, tenantId, used: false },
+        data: { used: true, usedAt: now }
+      });
+      const record = await tx.loginOtp.create({
+        data: {
+          tenantId,
+          userId: user.id,
+          otpHash: cryptoService.hashToken(otp),
+          authenticationMethods: methods,
+          createdAt: now,
+          lastSentAt: now,
+          expiresAt
+        }
+      });
+      await auditService.record(tx, {
+        tenantId,
+        actorUserId: user.id,
+        effectiveUserId: user.id,
+        action: "auth.email_otp_requested",
+        entityType: "login_otp",
+        entityId: record.id,
+        result: "SUCCESS",
+        context
+      });
+      return record;
+    });
+    const deliveryEmail = otpDeliveryEmail(user.email);
+    await emailOtpNotifier.send({ email: deliveryEmail, otp, expiresAt });
+    return {
+      otpRequired: true,
+      challengeId: challenge.id,
+      expiresIn: EMAIL_OTP_TTL_MINUTES * 60,
+      resendAfterSeconds: EMAIL_OTP_RESEND_SECONDS,
+      email: maskEmail(deliveryEmail)
+    };
+  }
+
+  private isUsableEmailOtp(
+    challenge: LoginOtp,
+    now: Date
+  ): boolean {
+    return (
+      !challenge.used &&
+      challenge.expiresAt > now &&
+      challenge.attemptCount < EMAIL_OTP_MAX_ATTEMPTS
+    );
+  }
+
+  private async registerFailedEmailOtp(
+    challenge: LoginOtp,
+    context: RequestContext
+  ): Promise<void> {
+    const now = new Date();
+    const attempts = challenge.attemptCount + 1;
+    const locked = attempts >= EMAIL_OTP_MAX_ATTEMPTS;
+    await prisma.$transaction(async (tx) => {
+      await tx.loginOtp.update({
+        where: { id: challenge.id },
+        data: {
+          attemptCount: attempts,
+          ...(locked ? { used: true, usedAt: now } : {})
+        }
+      });
+      await auditService.record(tx, {
+        tenantId: challenge.tenantId,
+        actorUserId: challenge.userId,
+        effectiveUserId: challenge.userId,
+        action: "auth.email_otp_failed",
+        entityType: "login_otp",
+        entityId: challenge.id,
+        result: "FAILURE",
+        reason: locked ? "OTP_ATTEMPTS_EXCEEDED" : "INVALID_OTP",
+        metadata: { failedAttempts: attempts },
+        context
+      });
+    });
+  }
+
   private async getAccessProfile(
     db: DatabaseClient,
     tenantId: string | null,
@@ -897,8 +1124,28 @@ function addMinutes(value: Date, minutes: number): Date {
   return new Date(value.getTime() + minutes * 60_000);
 }
 
+function addSeconds(value: Date, seconds: number): Date {
+  return new Date(value.getTime() + seconds * 1_000);
+}
+
 function addDays(value: Date, days: number): Date {
   return new Date(value.getTime() + days * 86_400_000);
+}
+
+function secondsUntil(target: Date, now: Date): number {
+  return Math.max(0, Math.ceil((target.getTime() - now.getTime()) / 1_000));
+}
+
+function maskEmail(email: string): string {
+  const [name, domain] = email.split("@");
+  if (!name || !domain) return email;
+  const visible = name.slice(0, Math.min(2, name.length));
+  return `${visible}${"*".repeat(Math.max(1, name.length - visible.length))}@${domain}`;
+}
+
+function otpDeliveryEmail(email: string): string {
+  // During development and tests, route every OTP to the shared verification mailbox.
+  return env.NODE_ENV === "production" ? email : DEVELOPMENT_OTP_EMAIL;
 }
 
 function isUuid(value: string): boolean {

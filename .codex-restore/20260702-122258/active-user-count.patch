@@ -1,0 +1,854 @@
+diff --git a/frontend/src/features/dashboard/dashboard-page.tsx b/frontend/src/features/dashboard/dashboard-page.tsx
+index 8a3dfda..234938c 100644
+--- a/frontend/src/features/dashboard/dashboard-page.tsx
++++ b/frontend/src/features/dashboard/dashboard-page.tsx
+@@ -1,10 +1,10 @@
++import { useQuery } from "@tanstack/react-query";
+ import {
+-  BriefcaseBusiness,
+-  CalendarDays,
++  Building2,
+   CheckCircle2,
+-  Coffee,
+   Fingerprint,
+   KeyRound,
++  LoaderCircle,
+   ShieldCheck,
+   Target,
+   UserRound,
+@@ -18,50 +18,10 @@ import {
+   CardHeader,
+   CardTitle
+ } from "@/shared/ui/card";
++import { adminApi } from "@/features/admin/admin.api";
+ import { useAuthStore } from "@/features/auth/auth.store";
+-
+-const metricCards = [
+-  {
+-    label: "Employees",
+-    value: "248",
+-    delta: "+12 this month",
+-    className: "metric-card-blue",
+-    icon: UsersRound
+-  },
+-  {
+-    label: "New hires",
+-    value: "16",
+-    delta: "8 onboarding",
+-    className: "metric-card-lime",
+-    icon: BriefcaseBusiness
+-  },
+-  {
+-    label: "On leave",
+-    value: "12",
+-    delta: "3 pending approval",
+-    className: "metric-card-rose",
+-    icon: CalendarDays
+-  },
+-  {
+-    label: "Reviews",
+-    value: "08",
+-    delta: "Cycle active",
+-    className: "metric-card-violet",
+-    icon: Target
+-  }
+-];
+-
+-const candidates = [
+-  ["Aarav Mehta", "Frontend Engineer", "Interview"],
+-  ["Neha Rao", "HR Generalist", "Offer"],
+-  ["Kabir Khan", "QA Engineer", "Screening"]
+-] satisfies Array<[string, string, string]>;
+-
+-const meetings = [
+-  ["10:00", "Performance calibration"],
+-  ["12:30", "Recruiter sync"],
+-  ["16:00", "Leave policy review"]
+-] satisfies Array<[string, string]>;
++import { hasAnyPermission } from "@/features/auth/permissions";
++import { performanceApi } from "@/features/performance/performance.api";
+ 
+ const roleCards = [
+   {
+@@ -87,10 +47,124 @@ const roleCards = [
+ export function DashboardPage() {
+   const user = useAuthStore((state) => state.user)!;
+   const activeAssignment = user.roleAssignments[0];
++  const tenantId = user.tenantId ?? user.memberships?.[0]?.tenantId ?? "";
+   const department =
+     activeAssignment?.organization?.name ??
+     activeAssignment?.role.department?.name ??
+     "No department assigned";
++
++  const canReadTenants = hasAnyPermission(user, [
++    "platform.tenants.read",
++    "tenant.settings.read"
++  ]);
++  const canReadUsers = hasAnyPermission(user, [
++    "platform.users.read",
++    "tenant.users.read",
++    "user.read"
++  ]);
++  const canReadOrganizations = hasAnyPermission(user, [
++    "platform.organizations.read",
++    "tenant.organizations.read"
++  ]);
++  const canReadRoles = hasAnyPermission(user, [
++    "platform.roles.read",
++    "tenant.roles.read",
++    "role.read"
++  ]);
++  const canReadPerformance = hasAnyPermission(user, [
++    "tenant.performance.read",
++    "tenant.performance.manage",
++    "team.performance.review"
++  ]);
++
++  const tenants = useQuery({
++    queryKey: ["dashboard", "tenants", tenantId],
++    queryFn: () =>
++      adminApi.listTenants({
++        ...(tenantId ? { tenantId } : {}),
++        limit: 1000
++      }),
++    enabled: canReadTenants
++  });
++  const users = useQuery({
++    queryKey: ["dashboard", "users", tenantId],
++    queryFn: () => adminApi.listUsers({ tenantId, limit: 1000 }),
++    enabled: Boolean(tenantId) && canReadUsers
++  });
++  const organizations = useQuery({
++    queryKey: ["dashboard", "organizations", tenantId],
++    queryFn: () => adminApi.listOrganizations({ tenantId, limit: 1000 }),
++    enabled: Boolean(tenantId) && canReadOrganizations
++  });
++  const roles = useQuery({
++    queryKey: ["dashboard", "roles", tenantId],
++    queryFn: () => adminApi.listRoles(tenantId),
++    enabled: Boolean(tenantId) && canReadRoles
++  });
++  const performanceDashboard = useQuery({
++    queryKey: ["dashboard", "performance", tenantId],
++    queryFn: () => performanceApi.dashboard({ tenantId }),
++    enabled: Boolean(tenantId) && canReadPerformance
++  });
++  const reviews = useQuery({
++    queryKey: ["dashboard", "performance-reviews", tenantId],
++    queryFn: () => performanceApi.listReviews({ tenantId, limit: 3 }),
++    enabled: Boolean(tenantId) && canReadPerformance
++  });
++
++  const tenantSummary = tenantId
++    ? tenants.data?.data.find((tenant) => tenant.id === tenantId)
++    : undefined;
++  const visibleUsers = users.data?.data ?? [];
++  const visibleOrganizations = organizations.data?.data ?? [];
++  const companyOrganizations = visibleOrganizations.filter(
++    (organization) =>
++      !organization.parent ||
++      ["company", "legal_entity"].includes(organization.organizationType)
++  );
++  const visibleRoles = roles.data?.data ?? [];
++  const visibleReviews = reviews.data?.data ?? [];
++
++  const metrics = [
++    {
++      label: "Tenant users",
++      value: tenantSummary?._count.users ?? visibleUsers.length,
++      detail: "From active tenant memberships",
++      available: canReadTenants || canReadUsers,
++      loading: tenants.isLoading || users.isLoading,
++      icon: UsersRound,
++      className: "metric-card-blue"
++    },
++    {
++      label: "Organizations",
++      value: companyOrganizations.length,
++      detail: "Company and legal entity records",
++      available: canReadOrganizations,
++      loading: organizations.isLoading || tenants.isLoading,
++      icon: Building2,
++      className: "metric-card-lime"
++    },
++    {
++      label: "Roles",
++      value: visibleRoles.length,
++      detail: "From RBAC role catalog",
++      available: canReadRoles,
++      loading: roles.isLoading,
++      icon: KeyRound,
++      className: "metric-card-rose"
++    },
++    {
++      label: "Reviews",
++      value: performanceDashboard.data?.data.reviews ?? 0,
++      detail: "From performance reviews",
++      available: canReadPerformance,
++      loading: performanceDashboard.isLoading,
++      icon: Target,
++      className: "metric-card-violet"
++    }
++  ];
++  const visibleMetrics = metrics.filter((metric) => metric.available);
++
+   const valueFor = (key: string) => {
+     if (key === "status") return user.status;
+     if (key === "mfa") return user.mfaEnabled ? "Enabled" : "Not enabled";
+@@ -104,11 +178,11 @@ export function DashboardPage() {
+           <div>
+             <span className="callout-label">HRMS dashboard</span>
+             <h1 className="mt-6 max-w-3xl text-4xl font-extrabold leading-tight text-primary sm:text-5xl">
+-              Welcome, {user.firstName}. Track your people operations at a glance.
++              Welcome, {user.firstName}. Track your tenant data at a glance.
+             </h1>
+             <p className="mt-5 max-w-2xl text-muted-foreground">
+-              Candidate movement, manager actions, leave status, and review
+-              progress share one workspace with tenant-aware access.
++              This dashboard only shows values returned by the API for your active
++              tenant and permissions.
+             </p>
+           </div>
+           <div className="rounded-lg border border-primary/10 bg-primary p-5 text-white shadow-xl">
+@@ -138,107 +212,145 @@ export function DashboardPage() {
+         </div>
+       </section>
+ 
+-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+-        {metricCards.map(({ label, value, delta, className, icon: Icon }) => (
+-          <Card key={label} className={className}>
+-            <CardContent className="p-5">
+-              <div className="mb-5 flex items-center justify-between">
+-                <span className="grid h-10 w-10 place-items-center rounded-md bg-white/85 shadow-sm">
+-                  <Icon className="h-5 w-5" />
+-                </span>
+-                <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-bold">
+-                  {delta}
+-                </span>
++      {visibleMetrics.length > 0 ? (
++        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
++          {visibleMetrics.map(({ label, value, detail, loading, className, icon: Icon }) => (
++            <Card key={label} className={className}>
++              <CardContent className="p-5">
++                <div className="mb-5 flex items-center justify-between">
++                  <span className="grid h-10 w-10 place-items-center rounded-md bg-white/85 shadow-sm">
++                    <Icon className="h-5 w-5" />
++                  </span>
++                  <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-bold">
++                    Live data
++                  </span>
++                </div>
++                <p className="text-sm font-semibold opacity-70">{label}</p>
++                <p className="mt-1 text-3xl font-extrabold">
++                  {loading ? <LoaderCircle className="h-7 w-7 animate-spin" /> : value}
++                </p>
++                <p className="mt-2 text-xs font-medium opacity-70">{detail}</p>
++              </CardContent>
++            </Card>
++          ))}
++        </div>
++      ) : null}
++
++      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
++        {canReadUsers ? (
++          <Card>
++            <CardHeader className="flex-row items-start justify-between gap-4">
++              <div>
++                <span className="callout-label">People</span>
++                <CardTitle className="mt-4">Tenant users</CardTitle>
++                <CardDescription>
++                  Real user records returned by the admin API.
++                </CardDescription>
+               </div>
+-              <p className="text-sm font-semibold opacity-70">{label}</p>
+-              <p className="mt-1 text-3xl font-extrabold">{value}</p>
++              <Badge variant="secondary">{visibleUsers.length} visible</Badge>
++            </CardHeader>
++            <CardContent>
++              {users.isLoading ? (
++                <LoadingState />
++              ) : visibleUsers.length ? (
++                <div className="grid gap-3 md:grid-cols-3">
++                  {visibleUsers.slice(0, 3).map((tenantUser) => (
++                    <div
++                      key={tenantUser.id}
++                      className="rounded-lg border border-primary/10 bg-slate-50 p-4"
++                    >
++                      <div className="mb-4 grid h-11 w-11 place-items-center rounded-full bg-white text-sm font-extrabold text-destructive shadow-sm">
++                        {tenantUser.firstName[0]}
++                        {tenantUser.lastName[0]}
++                      </div>
++                      <p className="font-bold text-primary">
++                        {tenantUser.firstName} {tenantUser.lastName}
++                      </p>
++                      <p className="text-sm text-muted-foreground">{tenantUser.email}</p>
++                      <Badge className="mt-4" variant="outline">
++                        {tenantUser.status}
++                      </Badge>
++                    </div>
++                  ))}
++                </div>
++              ) : (
++                <EmptyState message="No tenant users found." />
++              )}
+             </CardContent>
+           </Card>
+-        ))}
+-      </div>
++        ) : null}
+ 
+-      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+-        <Card>
+-          <CardHeader className="flex-row items-start justify-between gap-4">
+-            <div>
+-              <span className="callout-label">Candidates</span>
+-              <CardTitle className="mt-4">Shortlisted candidates</CardTitle>
++        {canReadPerformance ? (
++          <Card>
++            <CardHeader>
++              <span className="callout-label w-fit">Performance</span>
++              <CardTitle className="pt-4">Review focus</CardTitle>
+               <CardDescription>
+-                Track active hiring movement and next actions.
++                Real performance review records from the database.
+               </CardDescription>
+-            </div>
+-            <Badge variant="secondary">3 active</Badge>
+-          </CardHeader>
+-          <CardContent>
+-            <div className="grid gap-3 md:grid-cols-3">
+-              {candidates.map(([name, role, status]) => (
+-                <div
+-                  key={name}
+-                  className="rounded-lg border border-primary/10 bg-slate-50 p-4"
+-                >
+-                  <div className="mb-4 grid h-11 w-11 place-items-center rounded-full bg-white text-sm font-extrabold text-destructive shadow-sm">
+-                    {name
+-                      .split(" ")
+-                      .map((part) => part[0])
+-                      .join("")}
++            </CardHeader>
++            <CardContent className="space-y-3">
++              {reviews.isLoading ? (
++                <LoadingState />
++              ) : visibleReviews.length ? (
++                visibleReviews.map((review) => (
++                  <div
++                    key={review.id}
++                    className="rounded-md border border-primary/10 bg-slate-50 p-3"
++                  >
++                    <div className="flex items-center justify-between gap-3">
++                      <p className="text-sm font-semibold">
++                        {review.employee.firstName} {review.employee.lastName}
++                      </p>
++                      <Badge variant="outline">{review.status}</Badge>
++                    </div>
++                    <p className="mt-1 text-xs text-muted-foreground">
++                      {review.cycle.name}
++                    </p>
+                   </div>
+-                  <p className="font-bold text-primary">{name}</p>
+-                  <p className="text-sm text-muted-foreground">{role}</p>
+-                  <Badge className="mt-4" variant="outline">
+-                    {status}
+-                  </Badge>
+-                </div>
+-              ))}
+-            </div>
+-          </CardContent>
+-        </Card>
+-
+-        <Card>
+-          <CardHeader>
+-            <span className="callout-label w-fit">Managers</span>
+-            <CardTitle className="pt-4">Today's focus</CardTitle>
+-            <CardDescription>
+-              Meetings and manager actions that need attention.
+-            </CardDescription>
+-          </CardHeader>
+-          <CardContent className="space-y-3">
+-            {meetings.map(([time, title]) => (
+-              <div
+-                key={title}
+-                className="flex items-center gap-3 rounded-md border border-primary/10 bg-slate-50 p-3"
+-              >
+-                <span className="rounded-md bg-accent px-2.5 py-1 text-xs font-extrabold text-primary">
+-                  {time}
+-                </span>
+-                <p className="text-sm font-semibold">{title}</p>
+-              </div>
+-            ))}
+-          </CardContent>
+-        </Card>
++                ))
++              ) : (
++                <EmptyState message="No performance reviews found." />
++              )}
++            </CardContent>
++          </Card>
++        ) : null}
+       </div>
+ 
+       <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+-        <Card>
+-          <CardHeader>
+-            <span className="callout-label w-fit">Water cooler</span>
+-            <CardTitle className="pt-4">Team pulse</CardTitle>
+-            <CardDescription>
+-              Lightweight people signals for HR and managers.
+-            </CardDescription>
+-          </CardHeader>
+-          <CardContent className="space-y-3">
+-            {["4 birthdays this week", "2 policy acknowledgements due", "6 kudos shared"].map(
+-              (item) => (
+-                <div key={item} className="flex items-center gap-3 text-sm">
+-                  <span className="grid h-8 w-8 place-items-center rounded-full bg-lime-100 text-primary">
+-                    <Coffee className="h-4 w-4" />
+-                  </span>
+-                  {item}
+-                </div>
+-              )
+-            )}
+-          </CardContent>
+-        </Card>
++        {canReadOrganizations ? (
++          <Card>
++            <CardHeader>
++              <span className="callout-label w-fit">Organizations</span>
++              <CardTitle className="pt-4">Tenant structure</CardTitle>
++              <CardDescription>
++                Real organization records returned by the API.
++              </CardDescription>
++            </CardHeader>
++            <CardContent className="space-y-3">
++              {organizations.isLoading ? (
++                <LoadingState />
++              ) : companyOrganizations.length ? (
++                companyOrganizations.slice(0, 4).map((organization) => (
++                  <div
++                    key={organization.id}
++                    className="flex items-center justify-between gap-3 rounded-md border border-primary/10 bg-slate-50 p-3"
++                  >
++                    <div>
++                      <p className="text-sm font-semibold">{organization.name}</p>
++                      <p className="text-xs text-muted-foreground">
++                        {organization._count.children} child units
++                      </p>
++                    </div>
++                    <Badge variant="outline">{organization.code}</Badge>
++                  </div>
++                ))
++              ) : (
++                <EmptyState message="No company organization found." />
++              )}
++            </CardContent>
++          </Card>
++        ) : null}
+ 
+         <Card>
+           <CardHeader>
+@@ -283,3 +395,20 @@ export function DashboardPage() {
+     </div>
+   );
+ }
++
++function LoadingState() {
++  return (
++    <div className="flex items-center gap-2 text-sm text-muted-foreground">
++      <LoaderCircle className="h-4 w-4 animate-spin" />
++      Loading database records...
++    </div>
++  );
++}
++
++function EmptyState({ message }: { message: string }) {
++  return (
++    <div className="rounded-md border border-dashed border-primary/20 bg-slate-50 p-4 text-sm text-muted-foreground">
++      {message}
++    </div>
++  );
++}
+diff --git a/src/modules/admin/admin.service.ts b/src/modules/admin/admin.service.ts
+index 72d02ef..4dc0d17 100644
+--- a/src/modules/admin/admin.service.ts
++++ b/src/modules/admin/admin.service.ts
+@@ -59,9 +59,6 @@ export class AdminService {
+               ]
+             }
+           : {}),
+-        ...(input.organizationType
+-          ? { organizationType: input.organizationType }
+-          : {})
+       },
+       orderBy: tenantOrderBy(input.sort),
+       take: input.limit + 1,
+@@ -183,6 +180,9 @@ export class AdminService {
+                 { code: { contains: input.search, mode: "insensitive" } }
+               ]
+             }
++          : {}),
++        ...(input.organizationType
++          ? { organizationType: input.organizationType }
+           : {})
+       },
+       orderBy: organizationOrderBy(input.sort),
+@@ -596,6 +596,7 @@ export class AdminService {
+   async createRole(
+     data: {
+       tenantId: string;
++      departmentId?: string | null;
+       code: string;
+       name: string;
+       description?: string | null;
+@@ -606,11 +607,16 @@ export class AdminService {
+     context: RequestContext
+   ) {
+     const tenantId = resolveRequiredTenant(actor, data.tenantId);
++    await assertRoleMutationAllowed(prisma, actor, tenantId, {
++      roleType: data.roleType,
++      departmentId: data.departmentId ?? null
++    });
+     await this.validatePermissionIds(data.permissionIds);
+     return prisma.$transaction(async (tx) => {
+       const role = await tx.role.create({
+         data: {
+           tenantId,
++          departmentId: data.departmentId ?? null,
+           code: data.code,
+           name: data.name,
+           description: data.description ?? null,
+@@ -639,6 +645,7 @@ export class AdminService {
+   async updateRole(
+     id: string,
+     data: {
++      departmentId?: string | null;
+       name?: string;
+       description?: string | null;
+       roleType?: "TENANT" | "ORGANIZATION" | "MANAGER" | "SELF";
+@@ -657,11 +664,31 @@ export class AdminService {
+       }
+     });
+     if (!existing) throw new NotFoundError("Role");
++    if (existing.isSystemRole) {
++      throw new ConflictError(
++        "SYSTEM_ROLE_LOCKED",
++        "Default system roles cannot be changed."
++      );
++    }
++    if (!existing.tenantId) {
++      throw new ConflictError(
++        "PLATFORM_ROLE_LOCKED",
++        "Platform roles cannot be changed from tenant role management."
++      );
++    }
++    await assertRoleMutationAllowed(prisma, actor, existing.tenantId, {
++      roleType: data.roleType ?? existing.roleType,
++      departmentId:
++        data.departmentId === undefined ? existing.departmentId : data.departmentId
++    });
+     if (data.permissionIds) await this.validatePermissionIds(data.permissionIds);
+     return prisma.$transaction(async (tx) => {
+       await tx.role.update({
+         where: { id },
+         data: {
++          ...(data.departmentId !== undefined
++            ? { departmentId: data.departmentId }
++            : {}),
+           ...(data.name !== undefined ? { name: data.name } : {}),
+           ...(data.description !== undefined
+             ? { description: data.description }
+@@ -1467,6 +1494,8 @@ async function roleWithPermissions(tx: Transaction, id: string) {
+     select: {
+       id: true,
+       tenantId: true,
++      departmentId: true,
++      department: { select: { id: true, code: true, name: true } },
+       code: true,
+       name: true,
+       description: true,
+@@ -1781,6 +1810,56 @@ function requirePlatformActor(actor: Actor): void {
+   if (!actor.isPlatformAdmin) throw new AuthorizationError();
+ }
+ 
++async function assertRoleMutationAllowed(
++  db: Transaction | PrismaClient,
++  actor: Actor,
++  tenantId: string,
++  input: {
++    roleType: "PLATFORM" | "TENANT" | "ORGANIZATION" | "MANAGER" | "SELF";
++    departmentId?: string | null;
++  }
++): Promise<void> {
++  assertTenantAccess(actor, tenantId);
++  if (!actor.isPlatformAdmin && input.roleType === "TENANT") {
++    throw new AuthorizationError(
++      "Only platform administrators can manage tenant-wide roles."
++    );
++  }
++  if (input.roleType === "ORGANIZATION" || input.roleType === "MANAGER") {
++    if (!input.departmentId) {
++      throw new ValidationError([
++        {
++          field: "departmentId",
++          code: "REQUIRED",
++          message: "An organization must be selected for this role."
++        }
++      ]);
++    }
++    const organization = await db.organization.findFirst({
++      where: {
++        id: input.departmentId,
++        tenantId,
++        deletedAt: null
++      },
++      select: { id: true }
++    });
++    if (!organization) {
++      throw new ValidationError([
++        {
++          field: "departmentId",
++          code: "INVALID_SCOPE",
++          message: "Organization must belong to the selected tenant."
++        }
++      ]);
++    }
++    await assertOrganizationInScope(db, actor, tenantId, input.departmentId);
++    return;
++  }
++  if (!actor.isPlatformAdmin && input.departmentId) {
++    await assertOrganizationInScope(db, actor, tenantId, input.departmentId);
++  }
++}
++
+ function assertTenantAccess(actor: Actor, tenantId: string): void {
+   if (!actor.isPlatformAdmin && requireActorTenant(actor) !== tenantId) {
+     throw new AuthorizationError("Cross-tenant access is forbidden.");
+diff --git a/tests/security/rbac.integration.test.ts b/tests/security/rbac.integration.test.ts
+index 772c27e..dec4efe 100644
+--- a/tests/security/rbac.integration.test.ts
++++ b/tests/security/rbac.integration.test.ts
+@@ -185,6 +185,42 @@ describe("RBAC and tenant isolation", () => {
+     expect(settingsResponse.status).toBe(200);
+   });
+ 
++  it("filters organization lists by organization type", async () => {
++    const token = await platformTestAccessToken();
++    const tenant = await prisma.tenant.findUniqueOrThrow({
++      where: { code: "venturesoft" },
++      select: { id: true }
++    });
++
++    const companiesResponse = await api(
++      `/api/v1/admin/organizations?tenantId=${tenant.id}&organizationType=company&limit=100`,
++      token
++    );
++    const departmentsResponse = await api(
++      `/api/v1/admin/organizations?tenantId=${tenant.id}&organizationType=department&limit=100`,
++      token
++    );
++
++    expect(companiesResponse.status).toBe(200);
++    expect(departmentsResponse.status).toBe(200);
++    const companies = (await companiesResponse.json()) as {
++      data: Array<{ name: string; organizationType: string }>;
++    };
++    const departments = (await departmentsResponse.json()) as {
++      data: Array<{ name: string; organizationType: string }>;
++    };
++    expect(companies.data).toEqual([
++      expect.objectContaining({
++        name: "VentureSoft.AI",
++        organizationType: "company"
++      })
++    ]);
++    expect(departments.data.length).toBeGreaterThan(0);
++    expect(departments.data.every((item) => item.organizationType === "department")).toBe(
++      true
++    );
++  });
++
+   it.each([
+     ["Organization Admin", "orgadmin@venturesoft.ai", "ORGANIZATION_ADMIN"],
+     ["HR Manager", "hrmanager", "HR_MANAGER"],
+@@ -229,6 +265,93 @@ describe("RBAC and tenant isolation", () => {
+     });
+   });
+ 
++  it("allows tenant admins to create only organization-bound custom roles", async () => {
++    const unique = Date.now();
++    const token = await testAccessToken("venturesoft", "orgadmin@venturesoft.ai");
++    const tenantId = await currentTenantId(token);
++    const department = await prisma.organization.findFirstOrThrow({
++      where: { tenantId, organizationType: "department", deletedAt: null },
++      select: { id: true }
++    });
++    const permission = await prisma.permission.findFirstOrThrow({
++      where: { code: "user.read", deletedAt: null },
++      select: { id: true }
++    });
++    const code = `ORG_BOUND_ROLE_${unique}`;
++    let roleId: string | undefined;
++
++    try {
++      const tenantWideResponse = await api("/api/v1/admin/roles", token, {
++        method: "POST",
++        body: {
++          tenantId,
++          code: `TENANT_ROLE_${unique}`,
++          name: `Tenant Role ${unique}`,
++          roleType: "TENANT",
++          permissionIds: [permission.id]
++        }
++      });
++      expect(tenantWideResponse.status).toBe(403);
++
++      const missingDepartmentResponse = await api("/api/v1/admin/roles", token, {
++        method: "POST",
++        body: {
++          tenantId,
++          code: `ORG_ROLE_NO_DEPT_${unique}`,
++          name: `Org Role No Dept ${unique}`,
++          roleType: "ORGANIZATION",
++          permissionIds: [permission.id]
++        }
++      });
++      expect(missingDepartmentResponse.status).toBe(422);
++
++      const response = await api("/api/v1/admin/roles", token, {
++        method: "POST",
++        body: {
++          tenantId,
++          departmentId: department.id,
++          code,
++          name: `Org Bound Role ${unique}`,
++          roleType: "ORGANIZATION",
++          permissionIds: [permission.id]
++        }
++      });
++      expect(response.status).toBe(201);
++      const payload = (await response.json()) as {
++        data: { id: string; departmentId: string; roleType: string };
++      };
++      roleId = payload.data.id;
++      expect(payload.data).toMatchObject({
++        departmentId: department.id,
++        roleType: "ORGANIZATION"
++      });
++    } finally {
++      if (roleId) await cleanupRole(roleId);
++      await prisma.role.deleteMany({
++        where: {
++          tenantId,
++          code: { in: [`TENANT_ROLE_${unique}`, `ORG_ROLE_NO_DEPT_${unique}`, code] }
++        }
++      });
++    }
++  });
++
++  it("blocks tenant admins from editing default system roles", async () => {
++    const token = await testAccessToken("venturesoft", "orgadmin@venturesoft.ai");
++    const tenantId = await currentTenantId(token);
++    const role = await prisma.role.findFirstOrThrow({
++      where: { tenantId, code: "HR_MANAGER", isSystemRole: true, deletedAt: null },
++      select: { id: true }
++    });
++
++    const response = await api(`/api/v1/admin/roles/${role.id}`, token, {
++      method: "PATCH",
++      body: { name: "Changed HR Manager" }
++    });
++
++    expect(response.status).toBe(409);
++  });
++
+   it("rotates refresh tokens, revokes them on logout, and rejects reuse", async () => {
+     const loginResult = await loginResponse("venturesoft", "employee@venturesoft.ai");
+     expect(loginResult.status).toBe(200);
+@@ -1214,6 +1337,87 @@ async function login(
+   return payload.data.accessToken;
+ }
+ 
++async function testAccessToken(
++  tenantCode: string | undefined,
++  login: string
++): Promise<string> {
++  const tenant = tenantCode
++    ? await prisma.tenant.findUniqueOrThrow({
++        where: { code: tenantCode },
++        select: { id: true }
++      })
++    : null;
++  const user = await prisma.user.findFirstOrThrow({
++    where: {
++      OR: [
++        { email: login },
++        { username: login },
++        ...(isUuid(login) ? [{ id: login }] : [])
++      ],
++      status: "ACTIVE",
++      deletedAt: null
++    },
++    select: { id: true }
++  });
++  const session = await prisma.authSession.create({
++    data: {
++      tenantId: tenant?.id ?? null,
++      userId: user.id,
++      refreshTokenHash: "f".repeat(64),
++      refreshTokenFamily: randomUUID(),
++      expiresAt: new Date(Date.now() + 86_400_000)
++    },
++    select: { id: true }
++  });
++  return tokenService.signAccessToken({
++    sub: user.id,
++    tenant_id: tenant?.id ?? null,
++    session_id: session.id,
++    role_ids: [],
++    roles: [],
++    role_names: [],
++    permissions: [],
++    is_platform_admin: false,
++    amr: ["pwd"]
++  });
++}
++
++async function platformTestAccessToken(): Promise<string> {
++  const user = await prisma.user.findUniqueOrThrow({
++    where: { email: "superadmin@venturesoft.ai" },
++    select: { id: true }
++  });
++  const role = await prisma.role.findFirstOrThrow({
++    where: { tenantId: null, code: PLATFORM_ROLE.code, deletedAt: null },
++    select: { id: true, name: true }
++  });
++  const session = await prisma.authSession.create({
++    data: {
++      tenantId: null,
++      userId: user.id,
++      refreshTokenHash: "p".repeat(64),
++      refreshTokenFamily: randomUUID(),
++      expiresAt: new Date(Date.now() + 86_400_000)
++    },
++    select: { id: true }
++  });
++  return tokenService.signAccessToken({
++    sub: user.id,
++    tenant_id: null,
++    session_id: session.id,
++    role_ids: [role.id],
++    roles: [PLATFORM_ROLE.code],
++    role_names: [role.name],
++    permissions: PERMISSIONS.map((permission) => permission.code),
++    is_platform_admin: true,
++    amr: ["pwd"]
++  });
++}
++
++function isUuid(value: string): boolean {
++  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
++}
++
+ function loginResponse(
+   tenant: string | undefined,
+   login: string

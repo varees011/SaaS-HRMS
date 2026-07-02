@@ -160,6 +160,7 @@ function actor(req: Request) {
     tenantId: req.tenantAccess?.tenantId ?? null,
     userId: auth.userId,
     isPlatformAdmin: req.tenantAccess?.isPlatformAdmin ?? false,
+    permissions: auth.permissions,
     assignments: auth.assignments
   };
 }

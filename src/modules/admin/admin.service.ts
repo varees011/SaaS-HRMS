@@ -11,20 +11,18 @@ import {
   organizationEntityWhere,
   resolveOrganizationScope
 } from "../../core/organization-scope.js";
+import {
+  authorizationService,
+  type AuthorizationActor
+} from "../../core/authorization.service.js";
 import type { RequestContext } from "../../core/request-context.js";
 import { auditService } from "../audit/audit.service.js";
 import { cryptoService } from "../auth/crypto.service.js";
-import type { AuthorizationAssignment } from "../auth/auth.types.js";
 import { TENANT_ROLES } from "../rbac/rbac.catalog.js";
 
 type Transaction = Prisma.TransactionClient;
 
-interface Actor {
-  tenantId: string | null;
-  userId: string;
-  isPlatformAdmin: boolean;
-  assignments: AuthorizationAssignment[];
-}
+type Actor = AuthorizationActor;
 
 interface ListInput {
   cursor?: string;
@@ -59,9 +57,6 @@ export class AdminService {
               ]
             }
           : {}),
-        ...(input.organizationType
-          ? { organizationType: input.organizationType }
-          : {})
       },
       orderBy: tenantOrderBy(input.sort),
       take: input.limit + 1,
@@ -183,7 +178,11 @@ export class AdminService {
                 { code: { contains: input.search, mode: "insensitive" } }
               ]
             }
-          : {})
+          : {}),
+        ...(input.organizationType
+          ? { organizationType: input.organizationType }
+          : {}),
+        ...(input.departmentId ? { parentId: input.departmentId } : {})
       },
       orderBy: organizationOrderBy(input.sort),
       take: input.limit + 1,
@@ -349,44 +348,49 @@ export class AdminService {
 
   async listUsers(input: ListInput, actor: Actor) {
     const tenantId = resolveTenant(actor, input.tenantId);
-    const scope = await resolveOrganizationScope(prisma, actor, tenantId);
+    const tenantMembershipStatus =
+      tenantId && input.status
+        ? membershipStatus(
+            input.status as "INVITED" | "ACTIVE" | "LOCKED" | "DISABLED"
+          )
+        : undefined;
+    const accessWhere = await authorizationService.accessibleUserWhere(
+      prisma,
+      actor,
+      {
+        tenantId,
+        ...(input.departmentId ? { departmentId: input.departmentId } : {})
+      }
+    );
+    const roleFilter =
+      input.role === "manager"
+        ? authorizationService.managerEligibleRoleWhere()
+        : input.role === "employee"
+          ? authorizationService.employeeAssignableRoleWhere()
+          : null;
     const rows = await prisma.user.findMany({
       where: {
         deletedAt: null,
-        ...(tenantId
+        ...accessWhere,
+        ...(tenantId && tenantMembershipStatus
           ? {
               memberships: {
-                some: {
-                  tenantId,
-                  deletedAt: null
-                }
+                some: { tenantId, deletedAt: null, status: tenantMembershipStatus }
               }
             }
-          : actor.isPlatformAdmin
-            ? {}
-            : {
-                memberships: {
-                  some: {
-                    tenantId: requireActorTenant(actor),
-                    deletedAt: null
-                  }
-                }
-              }),
-        ...(tenantId && !scope.tenantWide
+          : {}),
+        ...(roleFilter
           ? {
               roleAssignments: {
                 some: {
-                  tenantId,
                   deletedAt: null,
-                  OR: [
-                    { organizationId: { in: scope.organizationIds } },
-                    { role: { departmentId: { in: scope.organizationIds } } }
-                  ]
+                  ...(tenantId ? { tenantId } : {}),
+                  role: roleFilter
                 }
               }
             }
           : {}),
-        ...(input.status
+        ...(input.status && !tenantId
           ? {
               status: input.status as
                 | "INVITED"
@@ -403,20 +407,6 @@ export class AdminService {
                 { email: { contains: input.search, mode: "insensitive" } },
                 { username: { contains: input.search, mode: "insensitive" } }
               ]
-            }
-          : {}),
-        ...(input.role
-          ? {
-              roleAssignments: {
-                some: {
-                  deletedAt: null,
-                  ...(tenantId ? { tenantId } : {}),
-                  role:
-                    input.role === "manager"
-                      ? managerialRoleWhere()
-                      : { code: "EMPLOYEE", deletedAt: null }
-                }
-              }
             }
           : {})
       },
@@ -596,6 +586,7 @@ export class AdminService {
   async createRole(
     data: {
       tenantId: string;
+      departmentId?: string | null;
       code: string;
       name: string;
       description?: string | null;
@@ -606,11 +597,16 @@ export class AdminService {
     context: RequestContext
   ) {
     const tenantId = resolveRequiredTenant(actor, data.tenantId);
+    await assertRoleMutationAllowed(prisma, actor, tenantId, {
+      roleType: data.roleType,
+      departmentId: data.departmentId ?? null
+    });
     await this.validatePermissionIds(data.permissionIds);
     return prisma.$transaction(async (tx) => {
       const role = await tx.role.create({
         data: {
           tenantId,
+          departmentId: data.departmentId ?? null,
           code: data.code,
           name: data.name,
           description: data.description ?? null,
@@ -639,6 +635,7 @@ export class AdminService {
   async updateRole(
     id: string,
     data: {
+      departmentId?: string | null;
       name?: string;
       description?: string | null;
       roleType?: "TENANT" | "ORGANIZATION" | "MANAGER" | "SELF";
@@ -657,11 +654,31 @@ export class AdminService {
       }
     });
     if (!existing) throw new NotFoundError("Role");
+    if (existing.isSystemRole) {
+      throw new ConflictError(
+        "SYSTEM_ROLE_LOCKED",
+        "Default system roles cannot be changed."
+      );
+    }
+    if (!existing.tenantId) {
+      throw new ConflictError(
+        "PLATFORM_ROLE_LOCKED",
+        "Platform roles cannot be changed from tenant role management."
+      );
+    }
+    await assertRoleMutationAllowed(prisma, actor, existing.tenantId, {
+      roleType: data.roleType ?? existing.roleType,
+      departmentId:
+        data.departmentId === undefined ? existing.departmentId : data.departmentId
+    });
     if (data.permissionIds) await this.validatePermissionIds(data.permissionIds);
     return prisma.$transaction(async (tx) => {
       await tx.role.update({
         where: { id },
         data: {
+          ...(data.departmentId !== undefined
+            ? { departmentId: data.departmentId }
+            : {}),
           ...(data.name !== undefined ? { name: data.name } : {}),
           ...(data.description !== undefined
             ? { description: data.description }
@@ -774,7 +791,10 @@ export class AdminService {
       data.roleId,
       assignment.departmentId
     );
-    if (data.managerUserId && isManagerialRole(assignment.role)) {
+    if (
+      data.managerUserId &&
+      authorizationService.isManagerialRole(assignment.role)
+    ) {
       throw new ValidationError([
         {
           field: "managerUserId",
@@ -1467,6 +1487,8 @@ async function roleWithPermissions(tx: Transaction, id: string) {
     select: {
       id: true,
       tenantId: true,
+      departmentId: true,
+      department: { select: { id: true, code: true, name: true } },
       code: true,
       name: true,
       description: true,
@@ -1738,38 +1760,18 @@ function resolveTenant(
   actor: Actor,
   requestedTenantId?: string | null
 ): string | null {
-  if (actor.isPlatformAdmin) {
-    return requestedTenantId ?? actor.tenantId;
-  }
-  const tenantId = requireActorTenant(actor);
-  if (requestedTenantId && requestedTenantId !== tenantId) {
-    throw new AuthorizationError("Cross-tenant access is forbidden.");
-  }
-  return tenantId;
+  return authorizationService.resolveTenant(actor, requestedTenantId);
 }
 
 function resolveRequiredTenant(
   actor: Actor,
   requestedTenantId?: string | null
 ): string {
-  const tenantId = resolveTenant(actor, requestedTenantId);
-  if (!tenantId) {
-    throw new ValidationError([
-      {
-        field: "tenantId",
-        code: "REQUIRED",
-        message: "A tenant must be selected."
-      }
-    ]);
-  }
-  return tenantId;
+  return authorizationService.resolveRequiredTenant(actor, requestedTenantId);
 }
 
 function requireActorTenant(actor: Actor): string {
-  if (!actor.tenantId) {
-    throw new AuthorizationError("An active tenant context is required.");
-  }
-  return actor.tenantId;
+  return authorizationService.requireActorTenant(actor);
 }
 
 function requireMutationTenant(actor: Actor): string | null {
@@ -1781,20 +1783,62 @@ function requirePlatformActor(actor: Actor): void {
   if (!actor.isPlatformAdmin) throw new AuthorizationError();
 }
 
-function assertTenantAccess(actor: Actor, tenantId: string): void {
-  if (!actor.isPlatformAdmin && requireActorTenant(actor) !== tenantId) {
-    throw new AuthorizationError("Cross-tenant access is forbidden.");
+async function assertRoleMutationAllowed(
+  db: Transaction | PrismaClient,
+  actor: Actor,
+  tenantId: string,
+  input: {
+    roleType: "PLATFORM" | "TENANT" | "ORGANIZATION" | "MANAGER" | "SELF";
+    departmentId?: string | null;
   }
-  if (actor.isPlatformAdmin && actor.tenantId && actor.tenantId !== tenantId) {
-    throw new AuthorizationError("Requested tenant does not match context.");
+): Promise<void> {
+  assertTenantAccess(actor, tenantId);
+  if (!actor.isPlatformAdmin && input.roleType === "TENANT") {
+    throw new AuthorizationError(
+      "Only platform administrators can manage tenant-wide roles."
+    );
+  }
+  if (input.roleType === "ORGANIZATION" || input.roleType === "MANAGER") {
+    if (!input.departmentId) {
+      throw new ValidationError([
+        {
+          field: "departmentId",
+          code: "REQUIRED",
+          message: "An organization must be selected for this role."
+        }
+      ]);
+    }
+    const organization = await db.organization.findFirst({
+      where: {
+        id: input.departmentId,
+        tenantId,
+        deletedAt: null
+      },
+      select: { id: true }
+    });
+    if (!organization) {
+      throw new ValidationError([
+        {
+          field: "departmentId",
+          code: "INVALID_SCOPE",
+          message: "Organization must belong to the selected tenant."
+        }
+      ]);
+    }
+    await assertOrganizationInScope(db, actor, tenantId, input.departmentId);
+    return;
+  }
+  if (!actor.isPlatformAdmin && input.departmentId) {
+    await assertOrganizationInScope(db, actor, tenantId, input.departmentId);
   }
 }
 
+function assertTenantAccess(actor: Actor, tenantId: string): void {
+  authorizationService.assertTenantAccess(actor, tenantId);
+}
+
 function tenantWhere(actor: Actor): { tenantId?: string } {
-  if (actor.isPlatformAdmin) {
-    return actor.tenantId ? { tenantId: actor.tenantId } : {};
-  }
-  return { tenantId: requireActorTenant(actor) };
+  return authorizationService.tenantWhere(actor);
 }
 
 function roleDepartmentFilter(
@@ -1984,7 +2028,7 @@ async function validateReportingManager(
           some: {
             tenantId,
             deletedAt: null,
-            role: managerialRoleWhere()
+            role: authorizationService.managerEligibleRoleWhere()
           }
         }
       }
@@ -2000,29 +2044,6 @@ async function validateReportingManager(
       }
     ]);
   }
-}
-
-function managerialRoleWhere(): Prisma.RoleWhereInput {
-  return {
-    deletedAt: null,
-    OR: [
-      { roleType: "MANAGER" },
-      { code: { contains: "MANAGER", mode: "insensitive" } },
-      { name: { contains: "Manager", mode: "insensitive" } }
-    ]
-  };
-}
-
-function isManagerialRole(role: {
-  roleType: "PLATFORM" | "TENANT" | "ORGANIZATION" | "MANAGER" | "SELF";
-  code: string;
-  name: string;
-}): boolean {
-  return (
-    role.roleType === "MANAGER" ||
-    role.code.toLowerCase().includes("manager") ||
-    role.name.toLowerCase().includes("manager")
-  );
 }
 
 export const adminService = new AdminService();
